@@ -1,0 +1,1257 @@
+<script>
+  /**
+   * ==========================================
+   * 页面安全防护设置
+   * ==========================================
+   * 禁用鼠标右键菜单与浏览器的开发者调试快捷键 (F12, Ctrl+Shift+I)
+   */
+  window.onload = function() {       
+    document.onkeydown = function() {
+      let e = window.event || arguments[0];
+      if (e.keyCode == 123) {         
+        return false;
+      } else if ((e.ctrlKey) && (e.shiftKey) && (e.keyCode == 73)) {
+        return false;
+      }
+    }
+    document.oncontextmenu = function() {
+      return false;
+    }
+  }
+
+  /**
+   * ==========================================
+   * IndexedDB 数据库封装模块
+   * ==========================================
+   */
+  let dbPromise = null;
+
+  /**
+   * 打开或连接本地 IndexedDB (cp_app_db)
+   * @returns {Promise<IDBDatabase>} 返回一个解析为 IndexedDB 实例的 Promise
+   */
+  function openDB() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open('cp_app_db', 1);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('kv')) {
+          db.createObjectStore('kv');
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      req.onblocked = () => console.warn('IndexedDB 升级被阻塞，可能有旧页面未关闭');
+    });
+    return dbPromise;
+  }
+
+  /**
+   * 从 IndexedDB 中根据键名获取对应的数据
+   * @param {string} key - 需要查询的缓存键名
+   * @returns {Promise<any>} 返回包含查询结果的 Promise
+   */
+  async function idbGet(key) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readonly');
+      const req = tx.objectStore('kv').get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /**
+   * ==========================================
+   * 全局变量声明区
+   * ==========================================
+   */
+  let execUrl = "";
+  const timearr = [0, 0];
+  window.machineStats = { totalGreen: 0, totalPink: 0, totalYellow: 0, totalGray: 0, selectedGreen: 0, selectedPink: 0, selectedYellow: 0 };
+  window.tempSelectedMachines = []; 
+  window.allPlanData = [];
+  window.injAllPlanParaData = [];
+
+  /**
+   * 清空页面上用于展示工艺参数的各项表格与下拉框数据
+   * 以便在切换机台或 SKU 时重置状态
+   */
+  function clearDataTables() {
+    $("#parameterInjectionTheadID").empty();
+    $("#parameterInjectionTbodyID").empty();
+    $("#modalTbodyStandardTechnologyID").empty();
+    // 隐藏外部的 div 容器，而不是隐藏 select 标签本身
+    $("#selectSplitNum").hide(); 
+    $("#splitNum").empty();
+    $("#changeReason").text("");
+  }
+  
+  /**
+   * ==========================================
+   * 扫码枪限时输入防抖处理
+   * ==========================================
+   * 给相同 name 标签属性的 input 绑定限时输入事件。
+   * 输入第二位时判断两次输入的间隔，如果间隔过长（判断为手动输入而非扫码），则清空值。
+   */
+  $("input[name='scanInput']").on("input", function() {
+    let enableScanInputIf = $("#enableScanInputIf").is(":checked");
+    let limitedTime = 20000;
+    if (enableScanInputIf) {
+      limitedTime = 40;
+    }
+    timearr[0] = new Date().getTime();
+    $("input[name='scanInput']").keydown(function() {
+      timearr[1] = new Date().getTime();
+      if ($(this).val().length > 1 && Math.abs(timearr[1] - timearr[0]) > limitedTime) {
+        $(this).val('');
+      }
+    });
+  });
+
+  /**
+   * ==========================================
+   * 定时刷新与倒计时提示模块
+   * ==========================================
+   */
+
+  /**
+   * 检查当前时间，到达指定交接班时间点时触发页面强制自动刷新
+   */
+  function updateTimeAndTriggerAutoRefresh() {
+    const handOverMorningTime = '07:45:00';
+    const handOverAfternooningTime = '15:45:00';
+    const handOverNightTime = '23:45:00';
+    let current = moment().format('HH:mm:ss');
+    if (current === handOverMorningTime || current === handOverAfternooningTime || current === handOverNightTime) {
+      countClose(5000, 1000);
+      setTimeout(function() { window.location.href = "about:blank"; }, 5000);
+    }
+  }
+
+  /**
+   * 基于 SweetAlert 递归调用的倒计时关闭提醒（弃用备选）
+   * @param {number} allTime - 总倒计时时间（秒）
+   * @param {number} timer - 当前剩余时间（秒）
+   * @param {boolean} isTimerStarted - 定时器是否已启动的标志位
+   */
+  function countdownClose(allTime, timer, isTimerStarted) {
+    (function customSwal() {
+      Swal.fire({  
+        title: "提醒",
+        text: "页面将在" + allTime + "秒内关闭：" + timer,
+        timer: !isTimerStarted ? timer * 1000 : undefined,
+        showConfirmButton: false
+      });
+      isTimerStarted = true;
+      if (timer) {
+        timer--;
+        setTimeout(customSwal, 1000);
+      }
+    })();
+  }
+  
+  /**
+   * 现代化的 SweetAlert2 进度条倒计时关闭函数
+   * @param {number} countdownTime - 总倒计时长（毫秒）
+   * @param {number} intervalTime - 刷新间隔（毫秒）
+   */
+  function countClose(countdownTime, intervalTime) {
+    let timerInterval;
+    Swal.fire({
+      allowOutsideClick: false,
+      width: "80%",
+      title: '提醒',
+      html: '页在将在' + countdownTime + '秒内关闭……【 <b id="swalBox"></b> 】',
+      timer: countdownTime,
+      timerProgressBar: true,
+      willOpen: () => {
+        Swal.showLoading();
+        timerInterval = setInterval(() => {
+          const content = Swal.getContent();
+          if (content) {
+            const b = content.querySelector('b');
+            if (b) {
+              b.textContent = parseInt(Swal.getTimerLeft() / 1000);
+            }
+          }
+        }, intervalTime);
+      },
+      willClose: () => {
+        clearInterval(timerInterval);
+      }
+    }).then((result) => {
+      if (result.dismiss === Swal.DismissReason.timer) {
+        window.opener = null;
+        window.open(' ', '_self');
+        window.close();
+      }
+    });
+  }
+
+  /**
+   * ==========================================
+   * 页面主加载初始化引擎
+   * ==========================================
+   * DOM 加载完成后执行。负责拉取底层数据、判断并恢复机台视图选择状态。
+   */
+  $(document).ready(async function () {
+    google.script.run.withSuccessHandler(result => { execUrl = result; }).getReleaseWebPage();
+    setInterval(updateTimeAndTriggerAutoRefresh, 1000);
+    $("#workshopID").val(sessionStorage.getItem("PpmsMonthCheckWs"));
+    
+    // 1. 弹出遮罩层，等待 IndexedDB 读取
+    Swal.fire({ 
+      allowOutsideClick: false, 
+      icon: 'info', 
+      title: '数据初始化中', 
+      text: "正在从本地缓存读取计划与标准数据，请稍候...", 
+      showConfirmButton: false, 
+      willOpen: () => { Swal.showLoading(); } 
+    });
+
+    // 2. 获取本地计划数据
+    window.allPlanData = JSON.parse(sessionStorage.getItem('sSAllPlan') || "[]");
+
+    // 3. 从 IndexedDB 获取工艺标准数据与机台主数据
+    try {
+      window.injAllPlanParaData = await idbGet('sSArrInjAllPlanParaData') || [];
+      window.allMachineInfo = await idbGet('sSArrAllMachineInfo') || []; // 拉取机台主物理台账
+      console.log("成功读取工艺标准数据条数:", window.injAllPlanParaData.length);
+    } catch (e) {
+      console.error("读取缓存失败", e);
+      Swal.fire({icon: 'error', title: '读取缓存失败', text: '无法获取本地数据，请返回上一页重新加载。'});
+    }
+    
+    Swal.close();
+
+    // 4. 判断缓存，决定是弹布局图还是直接恢复进页面
+    let todayStr = moment().format("YYYY-MM-DD");
+    let cachedDate = localStorage.getItem("injSelectedMachineDate");
+    let cachedMachinesArray = JSON.parse(localStorage.getItem("injSelectedLinesArray") || "[]");
+    
+    if (cachedDate === todayStr && cachedMachinesArray.length > 0) {
+      initMainCheckPage(cachedMachinesArray);
+    } else {
+      $("#modalMachineLayout").modal("show");
+      google.script.run.withSuccessHandler(renderMachineLayout).getInjMachineLayoutAndStatus($("#workshopID").val());
+    }
+    
+    // 机台地图确认按钮绑定
+    $("#btnConfirmMachine").on("click", function() {
+      if (window.tempSelectedMachines.length > 0) {
+        localStorage.setItem("injSelectedLinesArray", JSON.stringify(window.tempSelectedMachines));
+        localStorage.setItem("injSelectedMachineDate", todayStr);
+        $("#modalMachineLayout").modal("hide");
+        initMainCheckPage(window.tempSelectedMachines);
+      }
+    });
+  });
+
+  /**
+   * 双击清除按钮，强制移除本地保存的机台记忆缓存
+   */
+  $("#removeStorage").on("dblclick", function() {
+    localStorage.removeItem("injSelectedLinesArray");
+    localStorage.removeItem("injSelectedMachineDate");
+  });
+
+  /**
+   * ==========================================
+   * 机台物理布局与月检四色状态渲染
+   * ==========================================
+   * 根据后台返回的布局与状态数据，将各机台渲染为对应状态颜色的按钮
+   * @param {Object} result - 包含 layout, monthCheckedGray, injChecked24h, injChecked168h 的数据结构
+   */
+  function renderMachineLayout(result) {
+    let layout = result.layout;
+    let monthCheckedGray = result.monthCheckedGray || []; // 已经月检过的（灰色）
+    let injChecked24h = result.injChecked24h || [];       // 24小时内周检过（绿色）
+    let injChecked168h = result.injChecked168h || [];     // 168小时内周检过（粉色）
+    
+    window.machineStats = { totalGreen: 0, totalPink: 0, totalYellow: 0, totalGray: 0, selectedGreen: 0, selectedPink: 0, selectedYellow: 0 };
+    
+    let html = "<table class='table table-bordered table-sm' style='table-layout: fixed; width: 100%; font-size: 12px;'><tbody>";
+    
+    for (let r = 0; r < layout.length; r++) {
+      html += "<tr>";
+      for (let c = 0; c < layout[r].length; c++) {
+        let cellValue = layout[r][c] ? layout[r][c].toString().trim() : "";
+        if (cellValue.length === 8 && (cellValue.startsWith("T") || cellValue.startsWith("H") || cellValue.startsWith("V") || cellValue.startsWith("E") || cellValue.startsWith("S"))) {
+          
+          let btnClass = "", btnDisabled = "", colorType = "", customStyle = "font-weight:bold; height:100%;";
+          
+          // 【核心逻辑】：月检四色判定
+          if (monthCheckedGray.includes(cellValue)) {
+            // 灰色：当月在 Injection_RandomInspection 中已做
+            btnClass = "btn-secondary";
+            btnDisabled = "disabled";
+            colorType = "gray";
+            window.machineStats.totalGray++;
+          } else if (injChecked24h.includes(cellValue)) {
+            // 绿色：Injection表中前24做过的，且当月未做月检
+            btnClass = "btn-success";
+            colorType = "green";
+            window.machineStats.totalGreen++;
+          } else if (injChecked168h.includes(cellValue)) {
+            // 粉色：Injection表中小于前24做过的，大于前168小时内的，且当月未做月检
+            btnClass = "btn-danger";
+            colorType = "pink"; 
+            customStyle += " background-color: pink; color: #850038; border-color: hotpink;";
+            window.machineStats.totalPink++;
+          } else {
+            // 黄色：剩下的所有情况
+            btnClass = "btn-warning";
+            colorType = "yellow";
+            window.machineStats.totalYellow++;
+          }
+          
+          html += `<td class='text-center align-middle' style='padding:5px;'>
+                    <button class='btn btn-sm btn-block machine-btn ${btnClass}' ${btnDisabled} data-machine='${cellValue}' data-color='${colorType}' style='${customStyle}'>
+                      ${cellValue}
+                    </button>
+                  </td>`;
+        } else {
+          html += `<td class='text-center align-middle bg-light'>${cellValue}</td>`;
+        }
+      }
+      html += "</tr>";
+    }
+    html += "</tbody></table>";
+    
+    $("#layoutContainer").html(html);
+    updateMachineStatsUI();
+    
+    // 绑定未锁定按钮的拾取点击事件
+    $(".machine-btn:not(.disabled)").off("click").on("click", function() {
+      let machineId = $(this).data("machine");
+      let mColor = $(this).data("color");
+      
+      if ($(this).hasClass("selected-machine")) {
+        $(this).removeClass("selected-machine").css("border", "");
+        if (mColor === "pink") $(this).css("border-color", "hotpink"); // 取消选中时恢复粉色框
+        window.tempSelectedMachines = window.tempSelectedMachines.filter(m => m !== machineId);
+        if (mColor === "green") window.machineStats.selectedGreen--;
+        if (mColor === "pink") window.machineStats.selectedPink--;
+        if (mColor === "yellow") window.machineStats.selectedYellow--;
+      } else {
+        $(this).addClass("selected-machine").css("border", "3px solid black");
+        window.tempSelectedMachines.push(machineId);
+        if (mColor === "green") window.machineStats.selectedGreen++;
+        if (mColor === "pink") window.machineStats.selectedPink++;
+        if (mColor === "yellow") window.machineStats.selectedYellow++;
+      }
+      
+      updateMachineStatsUI();
+      if (window.tempSelectedMachines.length > 0) {
+        $("#selectedMachineText").text("已选择机台: " + window.tempSelectedMachines.join(", "));
+        $("#btnConfirmMachine").prop("disabled", false);
+      } else {
+        $("#selectedMachineText").text("未选择机台");
+        $("#btnConfirmMachine").prop("disabled", true);
+      }
+    });
+  }
+
+  /**
+   * 更新机台选择进度的 UI 统计面板
+   */
+  function updateMachineStatsUI() {
+    let s = window.machineStats;
+    let greenRatio = s.totalGreen === 0 ? 0 : Math.round((s.selectedGreen / s.totalGreen) * 100);
+    $("#statGreen").text(`${s.selectedGreen} / ${s.totalGreen} (${greenRatio}%)`);
+    let pinkRatio = s.totalPink === 0 ? 0 : Math.round((s.selectedPink / s.totalPink) * 100);
+    $("#statPink").text(`${s.selectedPink} / ${s.totalPink} (${pinkRatio}%)`);
+    let yellowRatio = s.totalYellow === 0 ? 0 : Math.round((s.selectedYellow / s.totalYellow) * 100);
+    $("#statYellow").text(`${s.selectedYellow} / ${s.totalYellow} (${yellowRatio}%)`);
+    
+    let overallTotal = s.totalGreen + s.totalPink + s.totalYellow + s.totalGray;
+    let overallCompleted = s.selectedGreen + s.selectedPink + s.selectedYellow + s.totalGray;
+    let overallRatio = overallTotal === 0 ? 0 : Math.round((overallCompleted / overallTotal) * 100);
+    $("#statTotal").text(`${overallCompleted} / ${overallTotal} (${overallRatio}%)`);
+  }
+
+  /**
+   * ==========================================
+   * 下拉框与表单级联渲染 (全库驱动 + 智能预选 + 防弹版)
+   * ==========================================
+   * 根据选定的机台池，初始化四级级联下拉框，并实现智能联动和容错补全
+   * @param {Array} machinesArray - 已选择进入检查的机台列表
+   */
+  function initMainCheckPage(machinesArray) {
+    $("#usernameID").val(sessionStorage.getItem("viewName") || "");
+    $("#SAPCodeID").val(sessionStorage.getItem("viewId") || "");
+    $("#workshopID").val(sessionStorage.getItem("PpmsMonthCheckWs") || "");
+    $("#timeInputID").val(moment().format("YYYY-MM-DD HH:mm:ss"));
+
+    let $machineSelect = $("#lineInputBoxID");
+    let $autoTypeSelect = $("#modalStandardMachineModel");
+    let $skuSelect = $("#materialInputID");
+    let $moldSelect = $("#modalStandardMoldModel");
+    let $machineTypeInput = $("#modalStandardMachineType");
+
+    // 【终极修复】：将提取方法封装为局部安全函数，每次触发实时调用，杜绝作用域丢失！
+    function getMasterData() {
+      let data = window.injAllPlanParaData || [];
+      if (typeof data === 'string') { 
+        try { data = JSON.parse(data); } catch(e){} 
+      }
+      if (!Array.isArray(data)) { data = Object.values(data); }
+      return data;
+    }
+    
+    // 辅助解析列
+    function getCol(row, colName) { 
+      return (row && row[colName]) ? String(row[colName]).trim() : ""; 
+    }
+
+    // 1. 初始化机台列表
+    $machineSelect.empty().append('<option value="NONE_SELECT" selected disabled>请选择机台</option>');
+    machinesArray.forEach(machine => { $machineSelect.append(`<option value="${machine}">${machine}</option>`); });
+    
+    $autoTypeSelect.empty().append('<option value="NONE_SELECT" selected disabled>等待机台</option>');
+    $skuSelect.empty().append('<option value="NONE_SELECT" selected disabled>等待自动化</option>');
+    $moldSelect.empty().append('<option value="NONE_SELECT" selected disabled>等待SKU</option>');
+    $machineTypeInput.val("");
+    $machineSelect.val("NONE_SELECT");
+
+    // 交互一：【选择机台】
+    $machineSelect.off("change").on("change", function() {
+      let machine = $(this).val();
+      if (machine === "NONE_SELECT") return;
+
+      clearDataTables();
+      $("#parameterFollowRemark").val("");
+
+      $autoTypeSelect.empty().append('<option value="NONE_SELECT" selected disabled>请选择自动化类别</option>');
+      $skuSelect.empty().append('<option value="NONE_SELECT" selected disabled>等待自动化</option>');
+      $moldSelect.empty().append('<option value="NONE_SELECT" selected disabled>等待SKU</option>');
+
+      let mType = machine.substring(2, 4); 
+      $machineTypeInput.val(mType);
+
+      let machineMaster = window.allMachineInfo.find(row => row[0] === machine);
+      let realAuto = machineMaster ? (machineMaster[1] || "").trim() : "";
+
+      let activePlan = window.allPlanData.find(row => row[4] == machine);
+      let defaultAuto = activePlan ? (activePlan[12] || "").trim() : realAuto;
+
+      // 安全拉取主库数据
+      let masterParaData = getMasterData();
+      let typeRecords = masterParaData.filter(row => getCol(row, "机型").toUpperCase() === mType.toUpperCase());
+      let uniqueAutos = [...new Set(typeRecords.map(row => getCol(row, "自动化分组")))];
+
+      if (realAuto && !uniqueAutos.includes(realAuto)) {
+        uniqueAutos.push(realAuto);
+      }
+
+      uniqueAutos.forEach(auto => {
+        let text = auto === "" ? "通用 (无自动化)" : auto;
+        $autoTypeSelect.append(`<option value="${auto}">${text}</option>`);
+      });
+
+      if (defaultAuto !== null && defaultAuto !== "" && uniqueAutos.includes(defaultAuto)) {
+        $autoTypeSelect.val(defaultAuto).trigger("change");
+      } else if (uniqueAutos.length === 1) {
+        $autoTypeSelect.val(uniqueAutos[0]).trigger("change");
+      }
+    });
+
+    // 交互二：【选择自动化】
+    $autoTypeSelect.off("change").on("change", function() {
+      let autoType = $(this).val();
+      if (autoType === "NONE_SELECT") return;
+
+      let machine = $machineSelect.val();
+      let mType = $machineTypeInput.val();
+      clearDataTables();
+
+      $skuSelect.empty().append('<option value="NONE_SELECT" selected disabled>请选择物料 (SKU)</option>');
+      $moldSelect.empty().append('<option value="NONE_SELECT" selected disabled>等待SKU</option>');
+
+      let activePlan = window.allPlanData.find(row => row[4] == machine);
+      let defaultSku = activePlan ? (activePlan[9] || "").trim() : null;
+
+      // 安全拉取主库数据
+      let masterParaData = getMasterData();
+      let autoRecords = masterParaData.filter(row =>
+        getCol(row, "机型").toUpperCase() === mType.toUpperCase() &&
+        getCol(row, "自动化分组") === autoType
+      );
+      let uniqueSKUs = [...new Set(autoRecords.map(row => getCol(row, "SKU")).filter(Boolean))];
+
+      if (uniqueSKUs.length === 0) { uniqueSKUs.push("NA"); }
+
+      uniqueSKUs.forEach(sku => { $skuSelect.append(`<option value="${sku}">${sku}</option>`); });
+
+      if (defaultSku !== null && uniqueSKUs.includes(defaultSku)) {
+        $skuSelect.val(defaultSku).trigger("change");
+      } else if (uniqueSKUs.length === 1) {
+        $skuSelect.val(uniqueSKUs[0]).trigger("change");
+      }
+    });
+
+    // 交互三：【选择 SKU】
+    $skuSelect.off("change").on("change", function() {
+      let autoType = $autoTypeSelect.val();
+      let sku = $(this).val();
+      if (sku === "NONE_SELECT") return;
+
+      let machine = $machineSelect.val();
+      let mType = $machineTypeInput.val();
+      clearDataTables();
+
+      $moldSelect.empty().append('<option value="NONE_SELECT" selected disabled>请选择模具号</option>');
+
+      let activePlan = window.allPlanData.find(row => row[4] == machine);
+      let defaultMold = activePlan ? (activePlan[8] || "").trim().substring(0, 8) : null;
+
+      // 安全拉取主库数据
+      let masterParaData = getMasterData();
+      let skuRecords = masterParaData.filter(row =>
+        getCol(row, "机型").toUpperCase() === mType.toUpperCase() &&
+        getCol(row, "自动化分组") === autoType &&
+        getCol(row, "SKU") === sku
+      );
+      let uniqueMolds = [...new Set(skuRecords.map(row => getCol(row, "模具编码")).filter(Boolean))];
+
+      if (uniqueMolds.length === 0) { uniqueMolds.push("NA"); }
+
+      uniqueMolds.forEach(mold => { $moldSelect.append(`<option value="${mold}">${mold}</option>`); });
+
+      if (defaultMold !== null && uniqueMolds.includes(defaultMold)) {
+        $moldSelect.val(defaultMold).trigger("change");
+      } else if (uniqueMolds.length === 1) {
+        $moldSelect.val(uniqueMolds[0]).trigger("change");
+      }
+    });
+
+    // 交互四：【选择 模具】 -> 触发数据最终加载！
+    $moldSelect.off("change").on("change", function() {
+      let machineType = $machineTypeInput.val();
+      let autoType = $autoTypeSelect.val();
+      let sku = $skuSelect.val();
+      let mold = $(this).val();
+      
+      if(machineType && mold && mold !== "NONE_SELECT" && sku && sku !== "NONE_SELECT") { 
+        loadMachineStandardDataLocal(machineType, autoType, mold, sku); 
+      }
+    });
+  }
+
+  /**
+   * ==========================================
+   * 生成参数输入的 HTML 表格区
+   * ==========================================
+   * 修复了表格滚雪球累加重复的 Bug，基于筛选出的标准动态绘制输入框
+   * @param {Array} paraDataArray - 根据当前配置筛选出的标准工艺参数数组
+   */
+  function renderInputTable(paraDataArray) {
+    let theadPara = $("#parameterInjectionTheadID");
+    let tbodyPara = $("#parameterInjectionTbodyID");
+    theadPara.empty();
+    tbodyPara.empty();
+
+    if (!paraDataArray || paraDataArray.length === 0) return;
+    
+    // 检查是否有变更原因并在界面回显
+    if (paraDataArray[0][6]) {
+      $("#changeReason").text("此标准工艺有变更原因【" + paraDataArray[0][6] + "】");
+    } else {
+      $("#changeReason").text("");
+    }
+
+    // 提取需要的5列参数以适应界面布局
+    let arrInjParaTemp = paraDataArray.map(function(x) { return [x[1], x[2], x[3], x[4], x[5]]; });
+    let arrInjParaData = VHDeformation2(arrInjParaTemp, 3); 
+    let paraCol = arrInjParaData[0].length / 4;
+
+    // 1. 生成表头
+    let arrHeadPara = [[]];
+    for (let i = 0; i < paraCol; i++) { 
+      arrHeadPara[0].push("工艺参数", "单位", "值");
+    }
+    let arrWidth = ["14%", "6%", "14%"];
+    let addRowHeadParaStr = "<tr>";
+    for (let j = 0, k = 0; j < arrHeadPara[0].length; j++, k++) {
+      if (k > 2) { k = 0; }
+      addRowHeadParaStr += "<th style='font-size:12px;text-align:center;width:" + arrWidth[k] + "'>" + arrHeadPara[0][j] + "</th>";
+    }
+    addRowHeadParaStr += "</tr>";
+    theadPara.append(addRowHeadParaStr);
+
+    // 2. 生成输入框内容主体
+    for (let i = 0; i < arrInjParaData.length; i++) {
+      let addRowTbodyParaStr = "<tr>";
+      for (let j = 0; j < arrInjParaData[0].length - 3; j = j + 4) {
+        if (arrInjParaData[i][j + 1] != "NA") {
+          // 常规的上下限数字类输入
+          addRowTbodyParaStr +=
+            "<td style='font-size:12px;text-align:center'><input class='form-control' style='border:0;background-color:unset;font-size:small' type='text' value='" + arrInjParaData[i][j] + "' disabled></td>" +
+            "<td style='font-size:12px;text-align:center'><input class='form-control' style='border:0;background-color:unset;font-size:small' type='text' value='" + arrInjParaData[i][j + 1] + "' disabled></td>" +
+            "<td style='font-size:12px;text-align:center'><input class='form-control' style='border:0;font-size:small'type='number' inputmode='decimal' placeholder='输入" + arrInjParaData[i][j] + "'></td>";
+        } else {
+          // 下拉选择类参数或无上下限的特殊字符串类输入
+          let strDefaulSelect = arrInjParaData[i][j + 3] || "";
+          if (strDefaulSelect != "") {
+            let arrDefaultSelectOption = strDefaulSelect.split("/");
+            let selectHtml = "<option selected></option>" + arrDefaultSelectOption.map(v => { return "<option>" + v + "</option>" }).join("");
+            addRowTbodyParaStr +=
+              "<td style='font-size:12px;text-align:center'><input class='form-control' style='border:0;background-color:unset;font-size:small' type='text' value='" + arrInjParaData[i][j] + "' disabled></td>" +
+              "<td style='font-size:12px;text-align:center'><input class='form-control' style='border:0;background-color:unset;font-size:small' type='text' value='" + arrInjParaData[i][j + 1] + "' disabled></td>" +
+              "<td style='font-size:12px;text-align:center'><select class='form-control' style='border:0;font-size:small'>" + selectHtml + "</select></td>";
+          } else {
+            addRowTbodyParaStr +=
+              "<td style='font-size:12px;text-align:center'><input class='form-control' style='border:0;background-color:unset;font-size:small' type='text' value='" + arrInjParaData[i][j] + "' disabled></td>" +
+              "<td style='font-size:12px;text-align:center'><input class='form-control' style='border:0;background-color:unset;font-size:small' type='text' value='" + arrInjParaData[i][j + 1] + "' disabled></td>" +
+              "<td style='font-size:12px;text-align:center'><input class='form-control' style='border:0;font-size:small' type='text' placeholder='输入" + arrInjParaData[i][j] + "'></td>";
+          }
+        }
+      }
+      addRowTbodyParaStr += "</tr>";
+      tbodyPara.append(addRowTbodyParaStr);
+    }
+  }
+
+  /**
+   * ==========================================
+   * 核心匹配与过滤：捞取工艺卡标准数据
+   * ==========================================
+   * 严谨嵌套降级 + 防重复重叠。并且包含副机判定逻辑直接放行。
+   * @param {string} machineType - 机器类型 (例如 FT/HT)
+   * @param {string} autoType - 自动化类型
+   * @param {string} mold - 模具类型
+   * @param {string} sku - SKU
+   */
+  function loadMachineStandardDataLocal(machineType, autoType, mold, sku) {
+    clearDataTables();
+    
+    // 【拦截器】：6AX 副机判定，直接放行，无需查参数
+    let currentMachine = $("#lineInputBoxID").val();
+    let currentAuto = String(autoType).trim();
+    if (currentMachine && currentMachine.startsWith("V") && currentAuto.indexOf("6Aix") !== -1) {
+      $("#divParmeterInjection").hide();
+      $("#parameterFollowRemark").parent().parent().hide(); // 隐藏跟随说明
+      
+      // 插入一条醒目的蓝色提示并打上 v-machine-pass 标记供提交时识别
+      if ($("#v-machine-alert").length === 0) {
+        $("#divParmeterInjection").before(
+          `<div id="v-machine-alert" class="alert alert-info text-center v-machine-pass" style="margin-top:20px;">
+            <b>【${currentMachine}】</b> 属于 6Aix 副机，无需核对工艺参数，请直接点击底部 <b>[保存记录]</b> 完成巡检打卡。
+          </div>`
+        );
+      } else {
+        $("#v-machine-alert").show();
+      }
+      
+      Swal.fire({allowOutsideClick:false, icon:'success', title:'副机免参数', text:'该机台为 6Aix 副机，请直接点击底部保存完成打卡！', showConfirmButton:false, timer:1500});
+      return; // 结束执行跳过工艺卡匹配
+    } else {
+      $("#divParmeterInjection").show();
+      $("#parameterFollowRemark").parent().parent().show();
+      $("#v-machine-alert").hide();
+    }
+    
+    // 1. 清理查询条件
+    let f_mType = String(machineType).trim().toUpperCase();
+    let f_aType = String(autoType).trim().toUpperCase();
+    if (f_aType === "NA") f_aType = ""; 
+    let f_mold = String(mold).trim().toUpperCase();
+    let f_sku = String(sku).trim().toUpperCase();
+    
+    // 2. 数据格式保障
+    let dataArray = window.injAllPlanParaData || [];
+    if (typeof dataArray === 'string') {
+      try { dataArray = JSON.parse(dataArray); } catch(e){}
+    }
+    if (!Array.isArray(dataArray)) {
+      dataArray = Object.values(dataArray);
+    }
+
+    function getCol(row, index, colName) {
+      if (Array.isArray(row)) return row[index];
+      if (typeof row === 'object' && row !== null) return row[colName] || row[index];
+      return "";
+    }
+
+    // 3. 第一阶段 -> 锁定硬件组合 (机型 + 自动化 + 模具)
+    let hwRecords = dataArray.filter(row => {
+        if (!row) return false;
+        let r_mType = String(getCol(row, 0, "机型") || "").trim().toUpperCase();
+        let r_aType = String(getCol(row, 1, "自动化分组") || "").trim().toUpperCase();
+        let r_mold  = String(getCol(row, 2, "模具编码") || "").trim().toUpperCase();
+        return r_mType === f_mType && r_aType === f_aType && r_mold === f_mold;
+    });
+    let matchLevel = "专有自动化";
+    
+    // 硬件降级：如果没有专有自动化，找通用自动化
+    if (hwRecords.length === 0) {
+        hwRecords = dataArray.filter(row => {
+            if (!row) return false;
+            let r_mType = String(getCol(row, 0, "机型") || "").trim().toUpperCase();
+            let r_aType = String(getCol(row, 1, "自动化分组") || "").trim().toUpperCase();
+            let r_mold  = String(getCol(row, 2, "模具编码") || "").trim().toUpperCase();
+            return r_mType === f_mType && (r_aType === "" || r_aType === "NA") && r_mold === f_mold;
+        });
+        matchLevel = "通用自动化(无)";
+    }
+
+    if (hwRecords.length === 0) {
+      Swal.fire({allowOutsideClick:false, icon:'warning', title:'无硬件匹配', html:`找不到硬件组合: 机型:<b>${f_mType}</b>, 自动化:<b>${f_aType||"无"}</b>, 模具:<b>${f_mold}</b> 的数据！`, showConfirmButton:true});
+      return;
+    }
+
+    // 4. 第二阶段 -> 在已锁定的硬件范围内寻找物料 SKU
+    let finalRecords = hwRecords.filter(row => {
+        let r_sku = String(getCol(row, 4, "SKU") || "").trim().toUpperCase();
+        return r_sku === f_sku;
+    });
+    matchLevel += " + 精确物料";
+
+    // SKU降级：如果没有精确SKU，找 NA 通用SKU
+    if (finalRecords.length === 0 && f_sku !== "NA") {
+        finalRecords = hwRecords.filter(row => {
+            let r_sku = String(getCol(row, 4, "SKU") || "").trim().toUpperCase();
+            return r_sku === "NA";
+        });
+        matchLevel = matchLevel.replace("精确物料", "NA通用物料");
+    }
+
+    if (finalRecords.length === 0) {
+      Swal.fire({allowOutsideClick:false, icon:'warning', title:'无物料匹配', html:`在当前硬件下，找不到 SKU: <b>${f_sku}</b> (或 NA) 的工艺卡！`, showConfirmButton:true});
+      return;
+    }
+
+    // 5. 提取参数并利用指纹过滤去重 (修复多段标准下拉框丢失的问题)
+    let arrInjStdParaData = [];
+    let seenParams = new Set(); 
+
+    finalRecords.forEach(targetRow => {
+        let splitOrder = String(getCol(targetRow, 7, "分序类别") || "").trim(); 
+        let cavity = String(getCol(targetRow, 6, "模穴") || "").trim();         
+        let bigBundle = String(getCol(targetRow, 3, "BigBundle") || "").trim(); 
+        let splitStr = `${splitOrder}【${cavity}-${bigBundle}】`;
+        
+        let jsonStr = getCol(targetRow, 8, "工艺参数") || "[]";                 
+        try {
+            let paramsList = JSON.parse(jsonStr);
+            if (!Array.isArray(paramsList)) paramsList = [paramsList];
+            
+            let deviceParams = paramsList.filter(p => {
+                let dept = String(p["检查部门"] || "");
+                return dept.includes("设备");
+            });
+            
+            deviceParams.forEach(p => {
+                let pName = p["工艺参数"] || p["参数"] || "";
+                let paramKey = splitStr + "_|_" + pName; // 用 "分步数+参数名" 作为唯一指纹防重复
+                
+                if (!seenParams.has(paramKey)) {
+                    seenParams.add(paramKey);
+                    arrInjStdParaData.push([
+                        splitStr, pName, p["单位"] || "", 
+                        p["设定下限"] || p["下限"] || "", p["设定上限"] || p["上限"] || "", 
+                        p["默认值"] || p["设定标准"] || p["标准值"] || "", p["变更原因"] || ""
+                    ]);
+                }
+            });
+        } catch(e) {
+            console.error("解析工艺参数JSON失败:", jsonStr, e);
+        }
+    });
+
+    if (arrInjStdParaData.length === 0) {
+        Swal.fire({icon:'warning', title:'无检查项', text:'已加载工艺卡，但该工艺卡内没有检查部门包含“设备”的参数项。'});
+        return;
+    }
+
+    // 将匹配好的当台机标准暂存在 Session 里供后续比对
+    sessionStorage.setItem("sessionStorageInjStdParaData", JSON.stringify(arrInjStdParaData));
+
+    // 6. 写入双击可见的模态框大表
+    let tbodyStdPara = $("#modalTbodyStandardTechnologyID");
+    tbodyStdPara.empty();
+    for(let k = 0; k < arrInjStdParaData.length; k++){
+      tbodyStdPara.append("<tr><td style='font-size:12px;text-align:center'>" + arrInjStdParaData[k][0] + "</td><td style='font-size:12px;text-align:center'>" + arrInjStdParaData[k][1] + "</td><td style='font-size:12px;text-align:center'>" + arrInjStdParaData[k][2] + "</td><td style='font-size:12px;text-align:center'>" + arrInjStdParaData[k][3] + "</td><td style='font-size:12px;text-align:center'>" + arrInjStdParaData[k][4] + "</td></tr>");
+    }
+
+    // 7. 根据是否含有多分步数渲染动态切换下拉框
+    let arrMoldSplit = Array.from(new Set(arrInjStdParaData.map(x => x[0])));
+    let $splitNumSelect = $("#splitNum");
+    let $selectSplitNumContainer = $("#selectSplitNum");
+
+    $splitNumSelect.off("change");
+
+    if (arrMoldSplit.length < 2) {
+      $selectSplitNumContainer.hide();      
+      renderInputTable(arrInjStdParaData);
+      Swal.fire({allowOutsideClick:false, icon:'success', title:'加载成功', text:`匹配层级：${matchLevel}`, showConfirmButton:false, timer:1500});
+    } else {
+      $("#parameterInjectionTheadID").empty();
+      $("#parameterInjectionTbodyID").empty(); 
+      $("#changeReason").text("");
+      
+      $selectSplitNumContainer.show(); 
+      $splitNumSelect.empty().show();
+      $splitNumSelect.append("<option style='font-size:small' value='' selected disabled>请选择分步数...</option>");
+      arrMoldSplit.forEach(split => {
+        $splitNumSelect.append("<option style='font-size:small' value='" + split + "'>" + split + "</option>");
+      });
+      $splitNumSelect.on("change", function() {
+        let selectedSplit = $(this).val();
+        let filteredParaData = arrInjStdParaData.filter(x => x[0] === selectedSplit);
+        renderInputTable(filteredParaData); 
+      });
+      Swal.fire({allowOutsideClick:false, icon:'success', title:'请选择分步数', text:`匹配层级：${matchLevel}。(存在多段分步，请在左侧下拉选择)`, showConfirmButton:true});
+    }
+  }
+
+  /**
+   * 双击清除缓存标签强制释放选中的机台记忆
+   */
+  $("#clearStorage").on("dblclick", function() {
+    localStorage.removeItem("injSelectedLinesArray");
+    localStorage.removeItem("injSelectedMachineDate");
+    Swal.fire({allowOutsideClick:false, icon:'info', title:'提醒', text:"缓存已清除", showConfirmButton:false, timer:1500});
+  });
+  
+  /**
+   * 双击系统顶头大标题唤醒查阅工艺标准模态框
+   * 支持通过密码进入查阅模式，或通过作弊指令自动填入数据
+   */
+  $("#viewModalStandardData").on("dblclick", async function() {
+    const { value: text } = await Swal.fire({
+      title: '验证权限',
+      input: 'password',
+      inputValue: "",
+      inputPlaceholder: '请输入权限密码……',
+      inputAttributes: { 'aria-label': '验证权限' },
+      showCancelButton: false
+    });
+    if (text === "000") {
+      $("#modalStandardData").modal("show");
+    } else if (text === "yyds") {
+      loadStandardPara(); // 研发模式：一键自动填充测试数据
+    }
+  });
+
+  /**
+   * ==========================================
+   * 提交设备参数周检/月检记录
+   * ==========================================
+   * 收集用户填写的表单，校验越界、触发审批或异常拦劫等核心提交流程。
+   */
+  $("#recordSubmit").off("click").on("click", function() {
+    let userNameID = $("#usernameID").val();
+    let SAPCodeID = $("#SAPCodeID").val();
+    let lineInputId = $("#lineInputBoxID").val();
+    let materialInputID = $("#materialInputID").val() || "NA";
+    let moldModel = $("#modalStandardMoldModel").val();
+    let parameterFollowRemark = $("#parameterFollowRemark").val();
+    let workshop = $("#workshopID").val();
+    
+    let passSelectResons = $("#passSelectResons").val();
+    let reportSelectResons = $("#reportSelectResons").val();
+    
+    let arrInjParameter = [];
+    let arrErrorParameter = [];
+    let arrAllError = [];
+    
+    let exemptionResons = "";
+    let emailIf = 0;
+    
+    let exemptionId = $("#exemptionId").val();
+    let PasswordInputBoxID = $("#PasswordInputBoxID").val();
+
+    // 【全局作用域获取副机免检状态】：决定是否放开空数据与必填项拦截
+    let isVMachinePass = $("#v-machine-alert").is(":visible");
+
+    // 1. 停机状态拦截 (无论如何，停机不需要参数)
+    if (passSelectResons === "停机") {
+      arrInjParameter = ["[]", parameterFollowRemark, "", "", "", ""];
+      reportSelectResons = "正常";
+      exemptionResons = "";
+      arrAllError = [];
+    } else {
+      // 2. 正常流程空值拦截 (如果是副机免检模式，则允许 SKU 为 NA 直接放行)
+      if (!isVMachinePass && (materialInputID === "NA" || materialInputID === "" || lineInputId === null)) {
+        Swal.fire({allowOutsideClick:false, icon:'warning', title:'提醒', text:"尚未完全选择机台与SKU参数！如果是停机，请选择【停机】后再保存。", showConfirmButton:true});
+        return false;
+      }
+        
+      let injParameterIf = [[], "[]", []];
+      
+      if (isVMachinePass) {
+         // 副机免检模式：压入空参数框架，不进行表格读取和对仗比对
+         arrInjParameter = ["[]", parameterFollowRemark, "", "", "", ""];
+         arrErrorParameter = [];
+         arrAllError = [];
+      } else {
+         // 常规模式：获取表格数据与标准比较
+         injParameterIf = checkInjParameter("parameterInjectionTbodyID");
+         arrInjParameter = [injParameterIf[1], parameterFollowRemark];
+         for (let i = 0; i < 4; i++) { arrInjParameter.push(""); }
+         arrErrorParameter = injParameterIf[0];
+         arrAllError = injParameterIf[0]; 
+      }
+    }
+    
+    // 3. 验证是否有填写的领班授权及合理性
+    let arrExemption = checkForemanExemption(exemptionId, PasswordInputBoxID, workshop);
+    
+    // 合并领班授权报错信息
+    if (!isVMachinePass) {
+       arrAllError = arrAllError.concat(arrExemption);
+    } else {
+       arrAllError = arrExemption; // 副机只有可能报领班密码的错
+    }
+    
+    if (reportSelectResons !== "正常") { exemptionResons = JSON.stringify(arrAllError); }
+    
+    // 4. 根据异常等级与授权情况拦截或报警放行
+    if (arrErrorParameter.length > 0 && arrExemption.length > 0) {
+      let arrTemp = arrAllError;
+      arrTemp.unshift(["检验条目", "检验内容", "验证结果"]);
+      Swal.fire({allowOutsideClick:false, width:"60%", icon:'error', title:'验证不通过', html:General_Htmltable(arrTemp, 100), showConfirmButton:true});
+      return false;
+    } else if (arrErrorParameter.length > 0 && arrExemption.length < 1 && reportSelectResons === "正常") {
+      let arrTemp = arrAllError;
+      arrTemp.unshift(["检验条目", "检验内容", "验证结果"]);
+      Swal.fire({allowOutsideClick:false, width:"60%", icon:'error', title:'验证不通过', html:General_Htmltable(arrTemp, 100), showConfirmButton:true, footer:'<p style="color:red">请选择豁免原因</p>'});
+      return false;
+    } else if (arrErrorParameter.length > 0 && arrExemption.length < 1 && reportSelectResons !== "正常") {
+      let arrTemp = arrAllError;
+      arrTemp.unshift(["检验条目", "检验内容", "验证结果"]);
+      Swal.fire({allowOutsideClick:false, width:"60%", icon:'error', title:'验证不通过，正授权保存中……', html:General_Htmltable(arrTemp, 100), showConfirmButton:true, footer:'<p style="color:green">技术员已豁免，豁免内容将邮件给工程师</p>'});
+      emailIf = 1;
+    }
+    
+    Swal.fire({allowOutsideClick:false, width:"60%", icon:'info', title:'验证通过', text:"保存记录中……", showConfirmButton:false});
+    
+    // 5. 后台发包并处理页面销毁动作
+    google.script.run.withSuccessHandler(htmlWriteTechPpmsCheck).writeTechPpmsMonthCheck(userNameID, SAPCodeID, workshop, materialInputID, lineInputId, arrInjParameter, passSelectResons, reportSelectResons, exemptionResons, exemptionId, emailIf, moldModel);
+    
+    function htmlWriteTechPpmsCheck(result) {
+      if (result[0] === "OK") {
+        Swal.fire({allowOutsideClick:false, icon:'success', title:'保存成功', text:result[1], showConfirmButton:true}).then(() => {
+          // 阅后即焚：将刚做完的机台从缓存队列移除，重置相关选择以备下一个机台的检验
+          let submittedMachine = $("#lineInputBoxID").val();
+          $("#lineInputBoxID option[value='" + submittedMachine + "']").remove();
+          
+          let cachedMachinesArray = JSON.parse(localStorage.getItem("injSelectedLinesArray") || "[]");
+          cachedMachinesArray = cachedMachinesArray.filter(m => m !== submittedMachine);
+          localStorage.setItem("injSelectedLinesArray", JSON.stringify(cachedMachinesArray));
+          
+          clearDataTables();
+          $("#materialInputID").empty().append('<option value="" selected disabled>请先选择机台</option>');
+          $("#parameterFollowRemark").val("");
+          $("#lineInputBoxID").val(""); 
+          $("#passSelectResons").prop('selectedIndex', 0);
+          $("#reportSelectResons").prop('selectedIndex', 0);
+          $("#exemptionId").val("");
+          $("#PasswordInputBoxID").val("");
+          
+          // 若清空完毕则退出应用回跳
+          if (cachedMachinesArray.length === 0) {
+            Swal.fire({
+              icon: 'info', title: '任务完成', text: '您本次选定的 INJ 机台已全部检查完毕！', confirmButtonText: '确定'
+            }).then(() => {
+              localStorage.removeItem("injSelectedLinesArray");
+              localStorage.removeItem("injSelectedMachineDate");
+              location.reload(); 
+            });
+          }
+        });
+      } else {
+        Swal.fire({allowOutsideClick:false, width:"60%", icon:'error', title:'保存失败', text:result[1], showConfirmButton:true});
+      }
+    }
+  });
+
+  /**
+   * 检查领班授权资格及密码
+   * @param {string} exemptionId - 高级技术员授权账号
+   * @param {string} PasswordInputBoxID - 提供的明文密码
+   * @param {string} workshop - 车间代号（备用做权限隔离）
+   * @returns {Array} 不符合条件的校验报错数组。如果长度为 0，说明通过验证。
+   */
+  function checkForemanExemption(exemptionId, PasswordInputBoxID, workshop) {
+    let arrPassAuth = JSON.parse(localStorage.getItem("allPassAuth"));
+    let arrId = arrPassAuth.map(function(x) { return x[0]; });
+    let position = arrId.indexOf(exemptionId);
+    let passAuth = [];
+    if (position > -1) { 
+      passAuth = [arrPassAuth[position][1], arrPassAuth[position][2], arrPassAuth[position][3], arrPassAuth[position][4]]; 
+    }
+    
+    let exemptionPassReson = [];
+    if (passAuth[0] != PasswordInputBoxID) {
+      exemptionPassReson.push(["不能跳过", "", "技术员密码不正确"]);
+    }
+    if (passAuth[1] != "Equ") {
+      exemptionPassReson.push(["不能跳过", "", "不是技术员"]);
+    }
+    if (passAuth[2] != "INJ") {
+      exemptionPassReson.push(["不能跳过", "", "不是本工序的技术员"]);
+    }
+    if (passAuth[3] != "YT") {
+      exemptionPassReson.push(["不能跳过", "", "该技术员无权限"]);
+    }
+    return exemptionPassReson;
+  }
+  
+  /**
+   * 对比提取表单填写的实际输入并核算工艺参数
+   * @param {string} parameterTbodyID - 动态生成的输入框父级 TBODY 编号
+   * @returns {Array} 结构为：[错误数组, 原始打包的JSON字符串, 源数组]
+   */
+  function checkInjParameter(parameterTbodyID) {
+    let modalTbodyStdParaData = $("#modalTbodyStandardTechnologyID");
+    let stdParaDataRows = modalTbodyStdParaData.find("tr").length;
+    let arrStdParaData = [];
+    let splitNum = $("#splitNum").val();
+    
+    // 取出相应的标准界限以供对仗
+    if (splitNum == null) {
+      for (let i = 0; i < stdParaDataRows; i++) {
+        let valueDes = modalTbodyStdParaData.find("tr").eq(i).find("td").eq(1).text();
+        let valueMin = modalTbodyStdParaData.find("tr").eq(i).find("td").eq(3).text();
+        let valueMax = modalTbodyStdParaData.find("tr").eq(i).find("td").eq(4).text();
+        if (valueDes != "") {
+          arrStdParaData.push([valueDes, valueMin, valueMax]);
+        }
+      }
+    } else {
+      for (let i = 0; i < stdParaDataRows; i++) {
+        let valueSplit = modalTbodyStdParaData.find("tr").eq(i).find("td").eq(0).text();
+        let valueDes = modalTbodyStdParaData.find("tr").eq(i).find("td").eq(1).text();
+        let valueMin = modalTbodyStdParaData.find("tr").eq(i).find("td").eq(3).text();
+        let valueMax = modalTbodyStdParaData.find("tr").eq(i).find("td").eq(4).text();
+        if (valueDes != "" && valueSplit == splitNum) {
+          arrStdParaData.push([valueDes, valueMin, valueMax]);
+        }
+      }
+    }
+    
+    let arrStdParaDes = arrStdParaData.map(function(x) { return x[0]; });
+    let tbodyParameter = $("#" + parameterTbodyID);
+    let tbodyParameterRows = tbodyParameter.find("tr").length;
+    let tbodyParameterCols = tbodyParameter.find("tr").eq(0).find("td").length;
+    let arrActParameterRecord = [];
+    let arrActParameter = [];
+    let arrErrorParameter = [];
+    
+    // 捞取用户真正填写的数据
+    for (let i = 0; i < tbodyParameterRows; i++) {
+      arrActParameterRecord = [];
+      for (let j = 0; j < tbodyParameterCols; j++) {
+        let valueTemp = tbodyParameter.find("tr").eq(i).find("td").eq(j).children().val();
+        arrActParameterRecord.push(valueTemp);
+      }
+      arrActParameter.push(arrActParameterRecord);
+    }
+    
+    let arrActParameterTemp = HVDeformation2(arrActParameter, 3);
+    let arrActParameterNew = arrActParameterTemp.filter(function(x) { return x[0] != ""; });
+    
+    // 比对开始
+    for (let i = 0; i < arrActParameterNew.length; i++) {
+      let position = arrStdParaDes.indexOf(arrActParameterNew[i][0]);
+      let valueMin = arrStdParaData[position][1];
+      let valueMax = arrStdParaData[position][2];
+      
+      if (arrActParameterNew[i][1] != "NA") {
+        let valueTemp = arrActParameterNew[i][2];
+        if (Number(valueTemp) < Number(valueMin) || Number(valueTemp) > Number(valueMax)) {
+          arrErrorParameter.push([arrActParameterNew[i][0], valueTemp, "不在范围[标准：" + valueMin + "~" + valueMax + "]"]);
+        }
+      } else {
+        let valueTemp = arrActParameterNew[i][2];
+        if (valueTemp != valueMin || valueTemp != valueMax) {
+          arrErrorParameter.push([arrActParameterNew[i][0], valueTemp, "与标准不符[标准：" + valueMin + "]"]);
+        }
+      }
+    }
+    
+    let strParameterRecord = JSON.stringify(arrActParameter);
+    return [arrErrorParameter, strParameterRecord, arrActParameter];
+  }
+  
+  /**
+   * 将数据装载进带有红/白交替警告配色的 HtmlTable 当中
+   * 用于作为报警内容推送到 SweetAlert UI 面板
+   * @param {Array} data - 需要渲染的二维数组信息
+   * @param {number} scale - HTML Table 的宽度占比 (一般给 100)
+   * @returns {string} 完整的 table html 代码段
+   */
+  function General_Htmltable(data, scale) {
+    let arrWidths = [45, 30, 25];
+    let htmltable = "<table border='1' style='table-layout:fixed;border-collapse:separate;font-size:small;color:red;width:" + scale + "%;'>";
+    for (let i = 0; i < data.length; i++) {
+      htmltable += "<tr>";
+      for (let j = 0; j < data[i].length; j++) {
+        if (i == 0) {
+          htmltable += "<td style=';text-align:center;background-color:#CCFFFF;color:black;font-weight:bold;width:" + arrWidths[j] + "%'>" + data[i][j] + "</td>";
+        } else if (i > 0 && i % 2 == 0) {
+          htmltable += "<td style=';text-align:center;background-color:#E8E8E8'>" + data[i][j] + "</td>";
+        } else {
+          htmltable += "<td style=';text-align:center'>" + data[i][j] + "</td>";
+        }
+      }
+      htmltable += "</tr>";
+    }
+    return htmltable + "</table>";
+  }
+
+  /**
+   * 辅助工具：将一维数组重构横向平铺为指定宽度的矩阵块
+   * 作用：让提取出来的长串属性等分展示在页面表列中
+   * @param {Array} arrSs - 原始待处理数组
+   * @param {number} splitCol - 预期折叠平铺的横向段数
+   * @returns {Array} 重排后的数据集合
+   */
+  function VHDeformation2(arrSs, splitCol) {
+    let arrTemp = [];
+    for (let i = 0; i < arrSs.length; i++) {
+      arrTemp.push([]);
+      for (let j = 0; j < arrSs[0].length; j++) {
+        arrTemp[arrTemp.length - 1].push(arrSs[i][j]);
+      }
+    }
+    let rowTotal = Math.ceil(arrTemp.length / splitCol);
+    let arrData = [];
+    if (arrTemp.length < 4) {
+      let r = 0;
+      let l = 0;
+      rowTotal = 1;
+      for (let i = 0; i < arrTemp.length; i++) {
+        if (l == 0) {
+          arrData.push([arrTemp[i][0], arrTemp[i][1], "", arrTemp[i][4]]);
+          r = r + 1;
+        } else {
+          arrData[r].push(arrTemp[i][0], arrTemp[i][1], "", arrTemp[i][4]);
+        }
+        if (r >= rowTotal) {
+          r = 0;
+          l = l + 1;
+        }
+      }
+    } else {
+      for (let n = arrTemp.length; n < rowTotal * splitCol; n++) {
+        arrTemp.push(["", "", ""]);
+      }
+      let r = 0;
+      let l = 0;
+      for (let i = 0; i < rowTotal * splitCol; i++) {
+        if (l == 0) {
+          arrData.push([arrTemp[i][0], arrTemp[i][1], "", arrTemp[i][4]]);
+          l = l + 1;
+        } else {
+          arrData[r].push(arrTemp[i][0], arrTemp[i][1], "", arrTemp[i][4]);
+          l = l + 1;
+        }
+        if (l >= splitCol) {
+          r = r + 1;
+          l = 0;
+        }
+      }
+    }
+    return arrData;
+  }
+
+  /**
+   * 辅助工具：将平铺的多列数据强制压降复原成垂直下落列格式
+   * 作用：让抓取到的横排表单能转换为一列去查数据库
+   * @param {Array} arrSs - 含平铺组的二维原数
+   * @param {number} splitCol - 折叠宽度基数
+   * @returns {Array} 还原重构结果
+   */
+  function HVDeformation2(arrSs, splitCol) {
+    let arrData = [];
+    for (let i = 0; i < arrSs.length; i++) {
+      for (let j = 0; j < arrSs[0].length; j = j + 3) {
+        arrData.push([arrSs[i][j + 0]]);
+        for (let k = 1; k < splitCol; k++) {
+          arrData[arrData.length - 1].push(arrSs[i][j + k]);
+        }
+      }
+    }
+    return arrData;
+  }
+
+  /**
+   * 研发与测试彩蛋：在解锁特权后自动装载合理的伪造标准工艺数据
+   * 以便在测试提交时快速跳过人为输入的枯燥核算阶段
+   */
+  function loadStandardPara() {
+    let modalTbody = $("#modalTbodyStandardTechnologyID");
+    let tbody = $("#parameterInjectionTbodyID");
+    let splitNum = $("#splitNum");
+    let arrModalTbodyData = [];
+    let arrModalTbodyDataCol1 = [];
+    let modalTbodyRows = modalTbody.find("tr").length;
+    
+    if (modalTbodyRows > 0) {
+      let modalTbodyCols = modalTbody.find("tr").eq(0).find("td").length;
+      for (let i = 0; i < modalTbodyRows; i++) {
+        arrModalTbodyData.push([]);
+        for (let j = 0; j < modalTbodyCols; j++) {
+          arrModalTbodyData[arrModalTbodyData.length - 1].push(modalTbody.find("tr").eq(i).find("td").eq(j).text());
+        }
+      }
+      
+      if (splitNum.val()) {
+        arrModalTbodyData = arrModalTbodyData.filter(v => { return v[0] == splitNum.val() });
+        arrModalTbodyDataCol1 = arrModalTbodyData.map(v => { return v[1] });
+      } else {
+        arrModalTbodyDataCol1 = arrModalTbodyData.map(v => { return v[1] });
+      }
+      
+      let tbodyRows = tbody.find("tr").length;
+      let tbodyRowTemp;
+      let position = -1;
+      
+      for (let k = 0; k < tbodyRows; k++) {
+        tbodyRowTemp = tbody.find("tr").eq(k).find("td");
+        if (tbodyRowTemp.eq(0).children().val()) {
+          position = arrModalTbodyDataCol1.indexOf(tbodyRowTemp.eq(0).children().val());
+          if (position != -1) {
+            tbodyRowTemp.eq(2).children().val(getRandomTwoNum(arrModalTbodyData[position][3], arrModalTbodyData[position][4]));
+          }
+        }
+        if (tbodyRowTemp.eq(3).children().val()) {
+          position = arrModalTbodyDataCol1.indexOf(tbodyRowTemp.eq(3).children().val());
+          if (position != -1) {
+            tbodyRowTemp.eq(5).children().val(getRandomTwoNum(arrModalTbodyData[position][3], arrModalTbodyData[position][4]));
+          }
+        }
+        if (tbodyRowTemp.eq(6).children().val()) {
+          position = arrModalTbodyDataCol1.indexOf(tbodyRowTemp.eq(6).children().val());
+          if (position != -1) {
+            tbodyRowTemp.eq(8).children().val(getRandomTwoNum(arrModalTbodyData[position][3], arrModalTbodyData[position][4]));
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * 被上述研发彩蛋函数依赖的产生区间随机数工具
+   * @param {string|number} m - 随机数最小值限额
+   * @param {string|number} n - 随机数最大值限额
+   * @returns {number|string} 合理的安全输出区间结果
+   */
+  function getRandomTwoNum(m, n) {
+    let result = m;
+    if (!isNaN(m) && !isNaN(n)) {
+      if (m.indexOf(".") != -1 || n.indexOf(".") != -1) {
+        result = Math.floor((Math.random() * (Number(n) - Number(m)) + Number(m)) * 10) / 10;
+      } else {
+        result = Math.floor(Math.random() * (Number(n) - Number(m)) + Number(m));
+      }
+    }
+    return result;
+  }
+
+</script>

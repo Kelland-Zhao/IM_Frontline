@@ -1,0 +1,647 @@
+<style type="text/css">
+  
+  /* ================= 悬浮按钮通用样式 ================= */
+  .floating-btn {
+    position: fixed;            /* 固定定位，使按钮不随页面滚动 */
+    top: 5px;                   /* 距离视口顶部 5px */
+    left: 5px;                  /* 距离视口左侧 5px */
+    z-index: 9999;              /* 极高的层级，确保显示在最顶层 */
+    padding: 2px 2px;           /* 极小的内边距，依赖内容或宽高撑开 */
+    /* 改为红色调渐变，提升视觉热度与警示性 */
+    background: linear-gradient(90deg, #fa4949 60%, #fa8843 100%);
+    border: none;               /* 移除默认边框 */
+    color: #fff;                /* 纯白文字/图标颜色 */
+    border-radius: 8px;         /* 现代化的微圆角 */
+    font-size: 3rem;            /* 超大图标/文字尺寸 */
+    box-shadow: 0 2px 7px rgba(220, 120, 120, 0.17); /* 跟随主色调的红色柔和阴影 */
+    cursor: pointer;            /* 鼠标悬停显示小手 */
+    opacity: 0.95;              /* 默认轻微透明，融入背景 */
+    transition: box-shadow 0.15s, transform 0.12s; /* 阴影和缩放的顺滑过渡动画 */
+  }
+
+  .floating-btn:hover {
+    box-shadow: 0 4px 15px rgba(250, 73, 73, 0.13); /* 鼠标悬停时，阴影扩散变亮 */
+    transform: scale(1.03);     /* 鼠标悬停时微微放大，提供物理按压反馈 */
+    opacity: 1;                 /* 恢复 100% 不透明度 */
+  }
+
+  /* ================= 容器与整体布局 ================= */
+  .container {       
+    max-width: 100%;            /* 取消 Bootstrap 默认的最大宽度限制 */
+    width: 98%;                 /* 留出两侧各 1% 的呼吸空间 */
+    align-content: center;      /* 交叉轴居中对齐 */
+  }
+
+  /* ================= 顶部居中红色大标题 ================= */
+  .zjtext-center {
+    display: flex;              /* 采用 Flex 布局 */
+    align-items: center;        /* 垂直居中 */
+    justify-content: center;    /* 水平居中 */
+    background-color: rgb(218, 41, 28); /* 品牌标志性的高露洁红 */
+    color: white;               /* 文字反白 */
+    padding: 10px;              /* 上下左右 10px 留白 */
+    border-radius: 40px;        /* 胶囊状的巨大圆角 */
+    position: relative;         /* 相对定位，为了让内部绝对定位的图片做参照物 */
+  }
+
+  /* 标题内部的配图通用设置 */
+  .zjtext-center img {
+    position: absolute;         /* 绝对定位，脱离正常文档流，贴在标题两侧 */
+  }
+
+  /* 标题内部的第一张图（靠左） */
+  .zjtext-center img:first-child {
+    left: 10px;                 /* 紧贴左侧 10px 处 */
+  }
+
+  /* 标题内部的最后一张图（靠右） */
+  .zjtext-center img:last-child {
+    right: 10px;                /* 紧贴右侧 10px 处 */
+  }
+  
+  /* ================= 页面基础底色与字体 ================= */
+  html, body {
+    background-image: url('');  /* 预留背景图位置，当前为空 */
+    background-size: cover;     /* 背景图按比例缩放并覆盖整个视口 */
+    background-repeat: no-repeat; /* 不平铺 */
+    height: 100%;               /* 撑满全屏高度 */
+    font-family: 'Arimo', sans-serif; /* 全局使用无衬线字体 */
+  }
+  
+  /* ================= Bootstrap Select 下拉框重置 ================= */
+  /* 下拉搜索框输入区域 */
+  .bs-searchbox > input {
+    font-size: small;           /* 缩小搜索字体适应紧凑布局 */
+  }
+  
+  /* 下拉框外层容器 */
+  .selectpicker {
+    border: 5px solid #8aa0b6;  /* 加粗蓝灰色边框 */
+    outline: 0;                 /* 去除浏览器默认聚焦外框 */
+    background-color: unset;    /* 继承背景透明 */
+    height: 100%;               /* 填满父容器高度 */
+    width: 100%;                /* 填满父容器宽度 */
+  }
+  
+  /* 下拉选中的文本条目 */
+  .filter-option {
+    font-size: small;           /* 减小字号，适配移动端和平板 */
+  }
+
+  /* 针对需要隐藏或特殊处理字体的下拉框 */
+  .selectFontUnset .filter-option {
+    font-size: small !important; 
+    color: rgba(255, 255, 255, 0) !important; /* 字体颜色设为全透明（隐身） */
+  }
+
+  /* ================= 社交/装饰图标样式 ================= */
+  .social_icon span {
+    font-size: 50px;            /* 超大图标尺寸 */
+    margin-left: 10px;          /* 图标间间距 */
+    color: #FFC312;             /* 显眼的明黄色 */
+  }
+
+  .social_icon span:hover {
+    color: white;               /* 悬停变白交互 */
+    cursor: pointer;            /* 小手光标 */
+  }
+
+  .card-header h3 {
+    color: white;               /* 卡片头部标题反白 */
+  }
+
+  .social_icon {
+    position: absolute;         /* 绝对定位 */
+    right: 20px;                /* 挂在容器右上角 */
+    top: -40px;                 /* 溢出容器顶部，形成突破式设计 */
+  }
+
+  /* ================= 登录页输入框前置图标组 ================= */
+  .input-group-prepend span {
+    width: 50px;                /* 固定宽度对齐 */
+    background-color: #FFC312;  /* 明黄背景 */
+    color: black;               /* 纯黑图标 */
+    border: 0 !important;       /* 强行去掉边框，扁平化 */
+  }
+
+  /* ================= 全局输入框聚焦重置 ================= */
+  input:focus {
+    outline: 0 0 0 0 !important;  /* 移除蓝色的 outline */
+    box-shadow: 0 0 0 0 !important; /* 移除外发光，保持界面干净 */
+  }
+
+  /* ================= 登录页辅助元素 ================= */
+  .remember {
+    color: white;               /* "记住密码" 文字变白 */
+  }
+
+  .remember input {
+    width: 20px;                /* 放大 Checkbox 宽 */
+    height: 20px;               /* 放大 Checkbox 高，方便手指点击 */
+    margin-left: 15px;
+    margin-right: 5px;
+  }
+
+  .login_btn {
+    color: black;
+    background-color: #FFC312;  /* 黄色登录按钮 */
+    width: 100px;               /* 固定按钮宽度 */
+  }
+
+  .login_btn:hover {
+    color: black;
+    background-color: white;    /* 悬停时反白，形成高对比 */
+  }
+
+  .links {
+    color: white;               /* 底部超链接容器文字颜色 */
+  }
+
+  .links a {
+    margin-left: 4px;           /* 链接间距 */
+  }
+  
+  /* 所有 input 文本统一居中并变小，契合紧凑型表单 */
+  input {
+    text-align: center;
+    font-size: small;
+  }
+  
+  /* ================= 登录盒子与毛玻璃背景 ================= */
+  .login_box::before {
+    content: "";                /* 伪元素必须带 content */
+    background-image: url("https://lh3.googleusercontent.com/u/0/d/1Wza1DfPFkTLwQD8Be4VV8sOg0moxxmQu"); /* 登录页专属大背景 */
+    opacity: 0.3;               /* 极低透明度，防止干扰文字 */
+    z-index: -1;                /* 藏在内容的最底层 */
+    width: 100%;
+    height: 100%;
+    position: absolute;         /* 绝对定位，脱离文档流铺满父级 */
+    top: 0px;
+    left: 0px;
+    border-radius: 40px;        /* 配合登录盒子的外圆角 */
+    background-repeat: no-repeat; 
+    background-position: center;/* 背景图居中锚定 */
+    background-size: cover;     /* 裁切铺满（不变形） */
+  }
+  
+  .login_box {
+    position: fixed;            /* 钉在视口上 */
+    left: 15%;                  /* 留出左右屏幕空间，居中 */
+    top: 5%;
+    width: 70%;                 /* 宽度占屏幕 70% */
+    height: 600px;              /* 固定高度 */
+    margin-left: 0px;
+    border-radius: 40px;        /* 巨大圆角 */
+    box-shadow: 10px 10px 5px #888; /* 深色立体投影 */
+    border: 0px solid #666;
+    text-align: center;         /* 内部内容居中排布 */
+  }
+  
+  /* ================= 表格内嵌输入组件透明化 ================= */
+  /* 表格中的 Input：隐身融入单元格 */
+  .tabInputNone {
+    border-left: none;
+    border-top: none;
+    border-right: none;
+    border-bottom: none;
+    background-color: unset;    /* 去掉白底 */
+    outline: none;              /* 移除选中蓝框 */
+    text-align: center;
+    width: 100%;
+  }
+  
+  /* 表格中的 Textarea：隐身并垂直居中 */
+  .tabTextareaNone {
+    border: none;
+    background-color: unset;
+    outline: none;
+    width: 100%;
+    overflow-y: hidden;         /* 隐藏滚动条 */
+    text-align: center;
+    display: table-cell;        /* 模拟表格单元格行为 */
+    vertical-align: middle;     /* 垂直居中对齐 */
+    resize: none;               /* 禁止用户拖拽右下角拉伸大小 */
+  }
+  
+  /* 表格中的 Select：隐身融入单元格 */
+  .tabSelectNone {
+    border: none;
+    background-color: unset;
+    outline: none;
+    text-align: center;
+    text-align-last: center;    /* 强制选中的文字也必须居中 */
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ================= 冻结表头、首尾列的大型矩阵表格 (frozenTableRC) ================= */
+  .frozenTableRC {
+    /* 核心魔法：使用 calc 动态算出剩余高度。260px 是减去头部标题和过滤框的大约高度，防止撑爆屏幕 */
+    height: calc(100vh - 260px) !important;
+    overflow: auto;             /* 内容溢出时开启十字滚动条 */
+    border-bottom: 1px solid #dee2e6; /* 底部封边 */
+    width: 100%;
+    margin: auto;               /* 居中 */
+    position: sticky;           /* 提供粘性定位的基础 */
+  }
+  
+  .frozenTableRC table {
+    position: sticky;
+    z-index: 0;                 /* 正常内容的层级最低 */
+  }
+   
+  .frozenTableRC td, th {
+    margin: 0px;
+    padding-left: 5px;          /* 左右内边距压缩 */
+    padding-right: 5px;
+    padding-top: 0px;
+    padding-bottom: 0px;
+    height: 60px;               /* 强制锁死行高 */
+  }
+  
+  .frozenTableRC tbody tr {
+    border-bottom: 1px solid #e9ecef; /* 极其柔和的浅灰细线分隔行 */
+    transition: all 0.2s ease-in-out; /* 让鼠标悬浮变色更丝滑 */
+  }
+  
+  /* 给表格单元格增加一点上下呼吸空间 */
+  .frozenTableRC td, .frozenTableRC th {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+  }
+  
+  /* ------ 冻结（Sticky）矩阵配置 ------ */
+  /* 冻结首行抬头 */
+  .frozenTableRC thead tr th { 
+    position: sticky;
+    top: 0px;                   /* 锁定在视窗顶部 */
+    z-index: 2;                 /* 盖住普通内容 */
+    background-color: whitesmoke;
+  }
+  
+  /* 左侧冻结列：第 1 列 */
+  .frozenTableRC thead th:nth-child(1) { position: sticky; left: 0px; z-index: 3; background-color: whitesmoke; }
+  .frozenTableRC tbody td:nth-child(1) { position: sticky; left: 0px; z-index: 1; background-color: #CCFFFF; }
+
+  /* 左侧冻结列：第 2 列 */
+  .frozenTableRC thead th:nth-child(2) { position: sticky; left: 0px; z-index: 3; background-color: whitesmoke; }
+  .frozenTableRC tbody td:nth-child(2) { position: sticky; left: 0px; z-index: 1; background-color: white; }
+
+  /* 左侧冻结列：第 3 列 (固定偏移量) */
+  .frozenTableRC thead th:nth-child(3) { position: sticky; left: 80px; z-index: 3; background-color: whitesmoke; }
+  .frozenTableRC tbody td:nth-child(3) { position: sticky; left: 80px; z-index: 1; background-color: white; }
+
+  /* 左侧冻结列：第 4 列 */
+  .frozenTableRC thead th:nth-child(4) { position: sticky; left: 160px; z-index: 3; background-color: whitesmoke; }
+  .frozenTableRC tbody td:nth-child(4) { position: sticky; left: 160px; z-index: 1; background-color: white; }
+
+  /* 左侧冻结列：第 5 列 */
+  .frozenTableRC thead th:nth-child(5) { position: sticky; left: 220px; z-index: 3; background-color: whitesmoke; }
+  .frozenTableRC tbody td:nth-child(5) { position: sticky; left: 220px; z-index: 1; background-color: white; }
+
+  /* 左侧冻结列：第 6 列 */
+  .frozenTableRC thead th:nth-child(6) { position: sticky; left: 300px; z-index: 3; background-color: whitesmoke; }
+  .frozenTableRC tbody td:nth-child(6) { position: sticky; left: 300px; z-index: 1; background-color: white; }
+  
+  /* 左侧冻结列：第 7 列 */
+  .frozenTableRC thead th:nth-child(7) { position: sticky; left: 380px; z-index: 3; background-color: whitesmoke; }
+  .frozenTableRC tbody td:nth-child(7) { position: sticky; left: 380px; z-index: 1; background-color: white; }
+  
+  /* 左侧冻结列：第 8 列 (高亮警示底色) */
+  .frozenTableRC thead th:nth-child(8) { position: sticky; left: 480px; z-index: 3; background-color: whitesmoke; }
+  .frozenTableRC tbody td:nth-child(8) { position: sticky; left: 480px; z-index: 1; background-color: lightpink; }
+
+  /* 右侧冻结列：倒数第 3 列 */
+  .frozenTableRC thead th:nth-last-child(3) { position: sticky; right: 0px; z-index: 3; background-color: whitesmoke; }
+  .frozenTableRC tbody td:nth-last-child(3) { position: sticky; right: 0px; z-index: 1; background-color: #CCFFFF; }
+  
+  /* 右侧冻结列：倒数第 2 列 */
+  .frozenTableRC thead th:nth-last-child(2) { position: sticky; right: 0px; z-index: 3; background-color: whitesmoke; }
+  .frozenTableRC tbody td:nth-last-child(2) { position: sticky; right: 0px; z-index: 1; background-color: #CCFFFF; }
+
+  /* 右侧冻结列：倒数第 1 列 */
+  .frozenTableRC thead th:nth-last-child(1) { position: sticky; right: 0px; z-index: 3; background-color: whitesmoke; }
+  .frozenTableRC tbody td:nth-last-child(1) { position: sticky; right: 0px; z-index: 1; background-color: #CCFFFF; }
+
+  /* 悬停整行变色互动 */
+  .frozenTableRC tbody tr:hover { 
+    position: sticky;
+    color: cyan;                /* 文字发青光 */
+    transition: .2s;            /* 平滑淡入 */
+  }
+  
+  /* ================= 仅冻结表头的表格 (frozenTableR) ================= */
+  .frozenTableR {
+    width: 100%;
+    margin: auto;
+    overflow-y: scroll;         /* 只开启垂直滚动 */
+    position: sticky;
+  }
+  
+  .frozenTableR table {
+    position: sticky;
+    z-index: 0;
+  }
+   
+  .frozenTableR td, th {
+    margin: 0px;
+    padding-left: 5px;
+    padding-right: 5px;
+    padding-top: 0px;
+    padding-bottom: 0px;
+    height: 30px;               /* 行高较紧凑 */
+  }
+  
+  .frozenTableR tbody tr {
+    border-bottom: 1px solid #000; /* 底部使用硬黑线分隔 */
+  }
+  
+  /* 冻结抬头为高露洁红 */
+  .frozenTableR thead tr th { 
+    position: sticky;
+    top: 0px;
+    z-index: 2;
+    background-color: rgb(218, 41, 28);
+    color: white;
+  }
+
+  /* 斑马纹交替底色 */
+  .frozenTableR tbody tr:nth-child(2n+1) { 
+    background-color: #F2F2F2; 
+  }
+
+  .frozenTableR tbody tr:hover { 
+    position: sticky;
+    color: cyan;
+    transition: .2s;
+  }
+
+  /* ================= 圆形按钮尺寸控制 ================= */
+  .btn-circle.btn-sm {
+    width: 28px;
+    height: 28px;
+    text-align: center;
+    padding: 2px 0;
+    font-size: 12px;
+    line-height: 1.3;
+    border-radius: 14px;        /* 宽度一半，呈现完美正圆 */
+  }
+  
+  .btn-circle {
+    width: 30px;
+    height: 30px;
+    text-align: center;
+    padding: 6px 0;
+    font-size: 12px;
+    line-height: 1.33;
+    border-radius: 15px;
+  }
+  
+  .btn-circle.btn-lg {
+    width: 50px;
+    height: 50px;
+    padding: 10px 16px;
+    text-align: center;
+    font-size: 14px;
+    line-height: 1.1;
+    border-radius: 25px;
+  }
+  
+  .btn-circle.btn-xl {
+    width: 70px;
+    height: 70px;
+    text-align: center;
+    padding: 10px 16px;
+    font-size: 18px;
+    line-height: 1.33;
+    border-radius: 35px;
+  }
+  
+  /* ================= 呼吸灯 (闪烁) 动画系列 ================= */
+  
+  /* Primary 呼吸蓝 */
+  .btn-twinkle-primary {
+    color: #fff;
+    border: none;
+    animation: twinkle-primary 0.5s alternate infinite; /* alternate 让来回平滑过渡 */
+  }
+  @keyframes twinkle-primary {
+    from { background: #0275d8; }
+    to { background: #ffffff00; } /* 渐变到全透明 */
+  }
+  
+  /* Secondary 呼吸黑灰 */
+  .btn-twinkle-secondary {
+    color: #fff;
+    border: none;
+    animation: twinkle-secondary 0.5s alternate infinite;
+  }
+  @keyframes twinkle-secondary {
+    from { background: #292b2c; }
+    to { background: #ffffff00; }
+  }
+  
+  /* Success 呼吸绿 */
+  .btn-twinkle-success {
+    color: #fff;
+    border: none;
+    animation: twinkle-success 0.5s alternate infinite;
+  }
+  @keyframes twinkle-success {
+    from { background: #5cb85c; }
+    to { background: #ffffff00; }
+  }
+  
+  /* Warning 呼吸黄 */
+  .btn-twinkle-warning {
+    color: #fff;
+    border: none;
+    animation: twinkle-warning 0.5s alternate infinite;
+  }
+  @keyframes twinkle-warning {
+    from { background: #f0ad4e; }
+    to { background: #ffffff00; }
+  }
+  
+  /* Danger 呼吸红 */
+  .btn-twinkle-danger {
+    color: #fff;
+    border: none;
+    animation: twinkle-danger 0.5s alternate infinite;
+  }
+  @keyframes twinkle-danger {
+    from { background: #d9534f; }
+    to { background: #ffffff00; }
+  }
+  
+  /* Info 呼吸浅青 */
+  .btn-twinkle-info {
+    color: #fff;
+    border: none;
+    animation: twinkle-info 0.5s alternate infinite;
+  }
+  @keyframes twinkle-info {
+    from { background: #5bc0de; }
+    to { background: #ffffff00; }
+  }
+  
+  /* Inverse 呼吸反黑 */
+  .btn-twinkle-inverse {
+    color: #fff;
+    border: none;
+    animation: twinkle-inverse 0.5s alternate infinite;
+  }
+  @keyframes twinkle-inverse {
+    from { background: #292b2c; }
+    to { background: #ffffff00; }
+  }
+  
+  /* Faded 呼吸浅灰底 */
+  .btn-twinkle-faded {
+    color: #fff;
+    border: none;
+    animation: twinkle-faded 0.5s alternate infinite;
+  }
+  @keyframes twinkle-faded {
+    from { background: #f7f7f7; }
+    to { background: #ffffff00; }
+  }
+  
+  /* 覆盖通用按钮聚焦或悬浮时的边框、文字反馈，防止眼花 */
+  .btn-primary:hover, .btn-primary:focus,
+  .btn-secondary:hover, .btn-secondary:focus,
+  .btn-info:hover, .btn-info:focus,
+  .btn-danger:hover, .btn-danger:focus,
+  .btn-warning:hover, .btn-warning:focus,
+  .btn-success:hover, .btn-success:focus {
+    color: #000;
+    border-color: #000;
+  }
+
+  /* 极致紧凑的小按钮修饰 */
+  .btn-xs {
+    padding: 0.0rem 0.0rem;     /* 剥离内边距 */
+    font-size: 0.8rem;          /* 设置与 h6 元素相同的字体大小 */
+    line-height: inherit;       /* 继承父元素的行高 */
+  }
+
+  /* 下拉按钮旁边的追加操作按键 */
+  .input-group-prepend a {
+    background-color: #FFC312;
+    color: black;
+    border: 0 !important;
+  }
+
+  /* ================= 布局图拾取器特有样式 ================= */
+  .layout-table td {
+    border: 1px solid #dee2e6;  /* 细边框更清爽 */
+    transition: all 0.2s ease;  /* 点击时有个平滑变色的动画 */
+  }
+  
+  .layout-table td:hover.cell-selectable {
+    opacity: 0.8;               /* 鼠标悬浮在蓝色可点机台上时，变浅提供交互反馈 */
+  }
+
+  /* ==========================================
+     第二阶段 UI 现代化：头部瘦身与组件圆润化
+  ========================================== */
+
+  /* 1. 顶部红色大标题“瘦身”与悬浮感 */
+  #viewSarmOrPostageTotalResult {
+    font-size: 26px !important;
+    padding: 8px 0 8px 0 !important; /* 调整上下内边距，减少笨重感 */
+    border-radius: 0 0 15px 15px; /* 底部加上现代化圆角，融入页面 */
+    box-shadow: 0 4px 10px rgba(218, 41, 28, 0.2); /* 微微的红色发光阴影提升质感 */
+    margin-bottom: 2px;
+  }
+  
+  /* 跑马灯微调，别和标题撞在一起 */
+  #viewSarmOrPostageTotalResult .row {
+    margin-top: -5px !important;
+  }
+
+  /* 2. 顶部输入框、下拉框、操作按钮统一“微圆角化” */
+  .container > .card .form-control, 
+  .container > .card .btn {
+    border-radius: 8px !important;
+    border: 1px solid #ced4da;
+    box-shadow: none !important; /* 去掉以前旧版框架的奇怪阴影 */
+  }
+  
+  /* 针对 Bootstrap Select 下拉框的特殊圆角强杀处理 */
+  .bootstrap-select .dropdown-toggle {
+    border-radius: 8px !important;
+    border: 1px solid #ced4da !important;
+  }
+
+  /* 3. 顶部三大金刚按钮（查看、FPR、计划状态）稍微加点轻投影与弹性交互 */
+  #viewPlan, #btnGroupFPR, #planStatus {
+    font-weight: bold;
+    border: none !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  
+  #viewPlan:hover, #btnGroupFPR:hover, #planStatus:hover {
+    transform: translateY(-1px); /* 鼠标移入微微上浮 */
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15) !important; /* 投影扩散 */
+  }
+
+  /* 4. 表头 (Thead) 高级化净化 */
+  .frozenTableRC thead tr th {
+    background-color: #f8f9fa !important; /* 现代极浅灰底色 */
+    color: #495057 !important;            /* 深灰偏黑的高级质感字体 */
+    border-top: none !important;          /* 剥除多余黑线，只留底部一条 */
+    border-left: none !important;
+    border-right: none !important;
+    border-bottom: 2px solid #dee2e6 !important; /* 只有底部留一条稍微粗一点的分界线 */
+    font-weight: 600 !important;
+    padding-top: 10px !important;         /* 撑开纵向空间 */
+    padding-bottom: 10px !important;
+  }
+  
+  /* ================= 完美精美空状态 (Empty State) 样式 ================= */
+  
+  /* 清除默认的青色斑马纹背景并取消单元格边框，化为白板 */
+  .empty-state-row td {
+    background-color: #f8f9fa !important; /* 统一的高级极浅灰底色 */
+    border: none !important;
+    padding: 0 !important;
+  }
+
+  /* 空状态中心提示容器 */
+  .empty-container {
+    position: sticky;           /* 吸附在视窗中，不受滚动干扰 */
+    left: 0;
+    width: 96vw;                /* 核心魔法1：强制跟随视口宽度，解决 iPad 水平滚动时的屏幕脱离/偏移问题 */
+    min-height: calc(100vh - 300px); /* 核心魔法2：动态向下撑满所有可用空间，确保图标死死定在页面正中央 */
+    display: flex;              /* 采用弹性盒布局 */
+    flex-direction: column;     /* 垂直排列子元素 */
+    align-items: center;        /* 水平绝对居中 */
+    justify-content: center;    /* 垂直绝对居中 */
+    background-color: #f8f9fa;  /* 配合父级背景，隐匿无形 */
+    color: #adb5bd;             /* 极浅灰文字，不抢戏 */
+  }
+
+  /* 巨大的提示图标（通常是个文件夹或者搜不到的放大镜） */
+  .empty-icon {
+    font-size: 80px;
+    margin-bottom: 20px;        /* 和底部文字留出间距 */
+    opacity: 0.3;               /* 透明淡化 */
+    animation: pulse 2.5s infinite ease-in-out; /* 挂载呼吸心跳动画，安抚用户等待情绪 */
+  }
+
+  /* 提示文本 */
+  .empty-text {
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: 1px;        /* 字间距微微拉开，提升高级感 */
+  }
+
+  /* Keyframes 定义微缩放呼吸动画 */
+  @keyframes pulse {
+    0% { transform: scale(1); opacity: 0.3; }
+    50% { transform: scale(1.05); opacity: 0.5; } /* 放大5%，透明度变高 */
+    100% { transform: scale(1); opacity: 0.3; }
+  }
+</style>

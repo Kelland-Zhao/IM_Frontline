@@ -1,0 +1,128 @@
+<script>
+  let execUrl="";
+  /*==================禁用鼠标右键==================*/
+  window.onload=function(){       
+    document.onkeydown=function(){
+      let e=window.event||arguments[0];
+      if(e.keyCode==123){         
+        return false;
+      }
+      else if((e.ctrlKey)&&(e.shiftKey)&&(e.keyCode==73)){
+        return false;
+      }
+    }
+    document.oncontextmenu=function(){
+      return false;
+    }
+  }
+
+  /*===========加载窗口时载入参数和程序===========*/
+  $(document).ready(function () {
+    google.script.run.withSuccessHandler(result=>{execUrl=result;console.log(execUrl)}).getReleaseWebPage();
+    let usernameID=sessionStorage.getItem("approveName");
+    $("#usernameID").val(usernameID);
+    let SAPCodeID=sessionStorage.getItem("approveId");
+    $("#SAPCodeID").val(SAPCodeID);
+    let workshopID=sessionStorage.getItem("approveDept");
+    $("#workshopID").val(workshopID);
+    document.getElementById("displayBOMButtonID").addEventListener("click", getBOMDataByMaterial);
+    $('#displayBOMButtonID').click();
+  });
+  
+  /*============获取申请转换的信息============*/
+  function getBOMDataByMaterial() {
+    let material=$("#materialInputID").val();
+    let dep=$("#workshopID").val();
+    if (dep !== 'TB1' && dep !== 'TB2') {
+      Swal.fire({allowOutsideClick:false,icon:'warning',title:'提醒',text:"非车间用户",showConfirmButton:true});
+      return false;
+    }
+    try {
+      Swal.fire({allowOutsideClick:false,icon:'info',title:'提醒',text:"正在获取申请转换的信息",showConfirmButton:false,footer:'<p>完成窗口会自动关闭</p>'});
+      google.script.run.withSuccessHandler(createBOMTable).getBOMApproveDataFromSheet(material,dep);
+      function createBOMTable(result) {
+        let table=$("#BOMDisplayTableBodyID");
+        if(result[0]=="OK"){
+          let arrTfBomS=result[1]
+          $("#BOMDisplayTableID tr:not(:first)").empty("");
+          for(let k=0;k<arrTfBomS.length;k++){
+            let tempBackgroundColor="#FFFFFF";
+            let ifEnable="";
+            if(arrTfBomS[k][5]=="取消"||arrTfBomS[k][5]=="生效"){tempBackgroundColor="#B8B8B8";ifEnable="disabled"}
+            let addRowStr="<tr>"+
+                            "<td style='height:60px;font-size:12px;text-align:center;background-color:"+tempBackgroundColor+"' "+ifEnable+">"+arrTfBomS[k][0]+"</td>"+
+                            "<td style='height:60px;font-size:12px;text-align:center;background-color:"+tempBackgroundColor+"' "+ifEnable+">"+arrTfBomS[k][1]+"</td>"+
+                            "<td style='height:60px;font-size:12px;text-align:center;background-color:"+tempBackgroundColor+"' "+ifEnable+">"+arrTfBomS[k][2]+"</td>"+
+                            "<td style='height:60px;font-size:12px;text-align:center;background-color:"+tempBackgroundColor+"' "+ifEnable+">"+arrTfBomS[k][3]+"</td>"+
+                            "<td style='height:60px;font-size:12px;text-align:center;display:none;background-color:"+tempBackgroundColor+"'>"+arrTfBomS[k][4]+"</td>"+
+                            "<td style='height:60px;font-size:12px;text-align:center;background-color:"+tempBackgroundColor+"' "+ifEnable+">"+arrTfBomS[k][5]+"</td>"+
+                            "<td style='height:60px;font-size:12px;text-align:center;background-color:"+tempBackgroundColor+"' "+ifEnable+">"+arrTfBomS[k][6]+"</td>"+
+                            "<td style='height:60px;font-size:12px;text-align:center;background-color:"+tempBackgroundColor+"' "+ifEnable+">"+arrTfBomS[k][7]+"</td>"+
+                            "<td style='height:60px;font-size:12px;text-align:center;background-color:"+tempBackgroundColor+"' "+ifEnable+">"+arrTfBomS[k][8]+"</td>"+
+                            "<td style='height:60px;font-size:12px;text-align:center;background-color:"+tempBackgroundColor+"' "+ifEnable+">"+arrTfBomS[k][9]+"</td>"+
+                            "<td style='height:60px;font-size:12px;text-align:center;background-color:"+tempBackgroundColor+"' "+ifEnable+">"+arrTfBomS[k][10]+"</td>"+
+                            "<td style='height:60px;font-size:12px;text-align:center;display:none;background-color:"+tempBackgroundColor+"'>"+arrTfBomS[k][11]+"</td>"+
+                            "<td style='height:60px;font-size:12px;text-align:center;background-color:"+tempBackgroundColor+"'>"+"<button class='form-control btn btn-sm btn-success' onclick='approveTransfer(this)' "+ifEnable+">批准激活</button>"+"</td>"+
+                            "<td style='height:60px;font-size:12px;text-align:center'>"+"<button class='form-control btn btn-sm btn-warning' onclick='showBOMPreview(this)''>预览</button>"+"</td>"+
+                           "</tr>";
+            table.append(addRowStr);
+          }
+          let rows=arrTfBomS.length;
+          $("#divScroll").scrollTop(rows*60);
+          $("#divScroll").scrollLeft(18*300);
+          Swal.fire({allowOutsideClick:false,icon:'success',title:'提醒',text:"BOM获取成功",showConfirmButton:false,timer:1500});
+        }
+        else{
+          $("#BOMDisplayTableID tr:not(:first)").empty("");
+          Swal.fire({allowOutsideClick:false,icon:'error',title:'提醒',text:result[1],showConfirmButton:true});
+        }
+      }
+    }
+    catch (e) {
+      Swal.fire({allowOutsideClick:false,icon:'error',title:'提醒',text:e.toString(),showConfirmButton:true});
+    }
+  }
+
+  /*============预览BOM===========*/
+  function showBOMPreview(obj) {
+    let trSeq=$(obj).parent().parent().index();
+    let table=$("#BOMDisplayTableBodyID");
+    let pdfUrl=table.find("tr").eq(trSeq).find("td").eq(11).text();
+    if(pdfUrl!=""){
+      window.open(pdfUrl);
+    }
+    else{
+      Swal.fire({allowOutsideClick:false,icon:'error',title:'提醒',text:"未找到链接",showConfirmButton:false,timer:1500});
+    }
+  }
+  
+  /*============批准转换============*/
+  function approveTransfer(obj) {
+    try {
+      let trSeq=$(obj).parent().parent().index();
+      let table=$("#BOMDisplayTableBodyID");
+      let bomNum=table.find("tr").eq(trSeq).find("td").eq(0).text();
+      let bomMaterial=table.find("tr").eq(trSeq).find("td").eq(4).text();
+      if (bomMaterial=== '') {
+        Swal.fire({allowOutsideClick:false,icon:'error',title:'提醒',text:"未选择物料",showConfirmButton:true});
+        return false;
+      }
+      let user=$("#usernameID").val();
+      Swal.fire({allowOutsideClick:false,icon:'info',title:'提醒',text:"正在写入批准信息……",showConfirmButton:false,footer:'<p>完成窗口会自动关闭</p>'});
+      google.script.run.withSuccessHandler(htmlProcessBOMTransfer).processBOMTransfer(bomNum, bomMaterial, user);
+      function htmlProcessBOMTransfer(result) {
+        if (result[0] === 'OK') {
+          Swal.fire({allowOutsideClick:false,icon:'success',title:'提醒',text:"批准成功",showConfirmButton:true});
+          getBOMDataByMaterial();
+        }
+        else{
+          Swal.fire({allowOutsideClick:false,icon:'error',title:'提醒',text:result[1],showConfirmButton:false,timer:1500});
+        }
+      }
+    }
+    catch (e) {
+      Swal.fire({allowOutsideClick:false,icon:'error',title:'提醒',text:e.toString(),showConfirmButton:true});
+    }
+  }
+
+</script>

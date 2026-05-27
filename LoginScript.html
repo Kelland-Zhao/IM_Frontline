@@ -1,0 +1,187 @@
+<script>  
+  let execUrl = "";
+  // 本地微缓存字典：存放当次已查询过的工号和姓名信息，防止重复请求带来的网络延迟
+  const localUserCache = {};
+
+  const htmlNotice = "<p align='left' style='font-size:20px'><b style='color:lime'>1、新一轮防疫包的发放</b><br><b style='margin-left:40px;color:white'>除之前的防疫包（感冒灵）外，公司及工会为所有同事准备了第二轮防疫包（漱口水及酒精消毒湿巾），第二轮防疫包将于近期发放。</b><p><p align='left' style='font-size:20px'><b style='color:lime'>2、餐厅加餐</b><br><b style='margin-left:40px;color:white'>食堂每日将增加牛奶或功能型饮料或水果等，以提高大家在此期间的抵抗力及加强营养</b></p><p align='left' style='font-size:20px'><b style='color:lime'>3、加强现场消杀</b><br><b style='margin-left:40px;color:white'>目前我们已提高所有公共区域的消杀频次，并于周末对车间所有场所做全面的消杀。</b></p><p align='left' style='font-size:24px;color:white'><b>希望大家关注各项防疫注意事项，<i style='color:lime'>戴好口罩，做好手部消除</i>，做自己的防疫责任第一人！</b></p>";
+
+  /***********************
+   * 页面初始化与事件绑定
+   ***********************/
+  document.addEventListener("DOMContentLoaded", function() {
+    // 1. 异步获取后端的发布链接
+    google.script.run.withSuccessHandler(function(result) {
+      execUrl = result;
+      console.log(execUrl);
+    }).getReleaseWebPage();
+    
+    // 2. 绑定工号输入框的实时动态监听 (input 事件实现输入第5位数字瞬间带出姓名)
+    document.getElementById("loginId").addEventListener("input", idToName);
+    
+    // 3. 绑定全局回车事件（增强防呆版）
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "Enter" || e.keyCode === 13) {
+        // 如果当前光标在工号框，按回车自动跳到密码框
+        if (document.activeElement.id === "loginId") {
+          e.preventDefault(); // 阻止浏览器默认行为
+          document.getElementById("loginPassword").focus();
+        } 
+        // 如果当前光标在密码框，按回车直接触发登录
+        else if (document.activeElement.id === "loginPassword") {
+          e.preventDefault(); // 阻止浏览器默认行为
+          viewPage(); // 触发【登录】按钮
+        }
+      }
+    });
+  });
+
+  /**
+   * 浏览器键盘事件：禁用 F12 开发者工具与鼠标右键菜单，防止车间误操作
+   */
+  window.onload = function() {       
+    document.onkeydown = function() {
+      let e = window.event || arguments[0];
+      if (e.keyCode == 123) {         
+        return false;
+      } else if ((e.ctrlKey) && (e.shiftKey) && (e.keyCode == 73)) {
+        return false;
+      }
+    };
+    document.oncontextmenu = function() {
+      return false;
+    };
+  };
+
+  /**
+   * 侦测工号输入状态，当长度达到 5 位数时，自动单点请求后端拉取员工脱敏信息
+   * 配合本地微缓存机制，已查过的人员信息删掉重输入时可实现 0 毫秒秒出
+   */
+  function idToName() { 
+    let loginId = document.getElementById("loginId").value;
+    let nameInput = document.getElementById("loginName");
+
+    // 长度未达 5 位时保持清空状态
+    if (loginId.length !== 5) {
+      nameInput.value = "";
+      return;
+    }
+
+    // 命中前端微缓存，直接显示，不向后端发包
+    if (localUserCache[loginId]) {
+      nameInput.value = localUserCache[loginId].name;
+      return;
+    }
+
+    // 未命中缓存，显示查询动画，并按需发起轻量单点查询
+    nameInput.value = "查询中...";
+    
+    google.script.run
+      .withFailureHandler(function(err) {
+        nameInput.value = "网络超时";
+        console.error(err);
+      })
+      .withSuccessHandler(function(res) {
+        if (res.status === "OK") {
+          nameInput.value = res.data.name;
+          // 将拉取到的姓名、部门、脱敏权限级别记录在前端本地字典中
+          localUserCache[loginId] = res.data; 
+        } else {
+          nameInput.value = "未找到此人";
+        }
+      })
+      .getUserInfoById(loginId); // 此处需要在后端的 Code.gs 中新增单点查询接口
+  }
+
+  /***********************
+   * 核心登录引擎（三合一收拢）
+   ***********************/
+
+  /**
+   * 统一登录与鉴权分流核心引擎
+   * 代替了原先臃肿、重复率高达 80% 的 viewPage, approvePage, finalMoldPage 三个旧函数
+   * @param {string} targetPage - 期望登录跳转的目标页面标识 (ViewPlan / Approve / FinalMoldView)
+   */
+  function handleLogin(targetPage) {
+    let loginId = document.getElementById("loginId").value;
+    let loginName = document.getElementById("loginName").value;
+    let loginPassword = document.getElementById("loginPassword").value;
+
+    if (loginId === "") {
+      Swal.fire({allowOutsideClick: false, icon: "error", title: "提醒", text: "工号不可为空，请输入5位工号", showConfirmButton: true});
+      return false;
+    }
+    if (loginName === "" || loginName === "未找到此人" || loginName === "查询中...") {
+      Swal.fire({allowOutsideClick: false, icon: "error", title: "提醒", text: "无法验证人员，请确认工号是否正确", showConfirmButton: true});
+      return false;
+    }
+    if (loginPassword === "") {
+      Swal.fire({allowOutsideClick: false, icon: "error", title: "提醒", text: "请输入登录密码", showConfirmButton: true});
+      return false;
+    }
+
+    Swal.fire({title: "正在验证登录...", allowOutsideClick: false, didOpen: () => Swal.showLoading()});
+
+    // 将工号和密码安全地抛给后端进行单点严格对仗验证，彻底消除全量密码下发的安全漏洞
+    google.script.run
+      .withFailureHandler(function(err) {
+        Swal.fire({icon: "error", title: "服务器未响应", text: err.message});
+      })
+      .withSuccessHandler(function(res) {
+        if (res.status !== "OK") {
+          return Swal.fire({allowOutsideClick: false, icon: "error", title: "登录失败", text: res.message, showConfirmButton: true});
+        }
+
+        // 验证成功，提取后端返回的该用户真实的脱敏权限与部门数据
+        let user = res.data; 
+
+        // 权限拦截分流
+        if (targetPage === "Approve" && user.dept.indexOf("领班") === -1 && user.auth !== "YT") {
+          return Swal.fire({allowOutsideClick: false, icon: "error", title: "权限受限", text: "非领班或特定授权人员无法进入审批模块", showConfirmButton: true});
+        }
+        if (targetPage === "FinalMoldView" && user.auth !== "YT") {
+          return Swal.fire({allowOutsideClick: false, icon: "error", title: "权限受限", text: "您不属于设备工程维护团队，无权管理末模", showConfirmButton: true});
+        }
+
+        // 校验全部通关，将必要标识存入会话层（SessionStorage），开闸放行！
+        sessionStorage.setItem("viewId", user.id);
+        sessionStorage.setItem("viewName", user.name);
+        if (targetPage === "Approve") {
+          sessionStorage.setItem("approveId", user.id);
+          sessionStorage.setItem("approveName", user.name);
+          sessionStorage.setItem("approveDept", user.dept);
+        }
+
+        window.open(execUrl + "?v=" + targetPage);
+        
+        // 抹除表单残留，防泄密
+        document.getElementById("loginId").value = "";
+        document.getElementById("loginName").value = ""; 
+        document.getElementById("loginPassword").value = "";
+        Swal.close();
+      })
+      .verifyUserLogin(loginId, loginPassword); // 调用后端的安全对仗验证接口
+  }
+
+  // ---------------- 外部按钮轻量级代理映射 ----------------
+
+  /**
+   * 点击【登录】按钮触发代理
+   */
+  function viewPage() {
+    handleLogin("ViewPlan");
+  }
+  
+  /**
+   * 点击【审批】按钮触发代理
+   */
+  function approvePage() {
+    handleLogin("Approve");
+  }
+
+  /**
+   * 点击【末模】按钮触发代理
+   */
+  function finalMoldPage() {
+    handleLogin("FinalMoldView");
+  }
+</script>

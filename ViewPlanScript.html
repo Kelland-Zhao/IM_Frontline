@@ -1,0 +1,3762 @@
+<script>
+  // ==========================================
+  // 【SweetAlert 统一弹窗封装函数】
+  // ==========================================
+  
+  /**
+   * 提示信息弹窗
+   * @param {string} text - 弹窗提示正文内容
+   * @param {object} conf - 额外的 SweetAlert 配置项
+   */
+  const swalInfo = (text, conf = {}) => Swal.fire({ allowOutsideClick: false, icon: "info", title: "提醒", text, showConfirmButton: false, ...conf });
+
+  /**
+   * 成功信息弹窗 (支持 HTML)
+   * @param {string} html - 弹窗提示的 HTML 内容
+   * @param {object} conf - 额外的 SweetAlert 配置项
+   */
+  const swalSuccess = (html, conf = {}) => Swal.fire({ allowOutsideClick: false, icon: "success", title: "提醒", html, showConfirmButton: true, ...conf });
+
+  /**
+   * 警告信息弹窗 (支持 HTML)
+   * @param {string} html - 弹窗提示的 HTML 内容
+   * @param {object} conf - 额外的 SweetAlert 配置项
+   */
+  const swalWarn = (html, conf = {}) => Swal.fire({ allowOutsideClick: false, icon: "warning", title: "提醒", html, showConfirmButton: true, ...conf });
+
+  /**
+   * 错误信息弹窗
+   * @param {string} text - 弹窗提示的错误文本
+   * @param {object} conf - 额外的 SweetAlert 配置项
+   */
+  const swalError = (text, conf = {}) => Swal.fire({ allowOutsideClick: false, icon: "error", title: "提醒", text, showConfirmButton: true, ...conf });
+
+
+  /***********************
+   * 双轨制缓存调度引擎
+   ***********************/
+
+  /**
+   * 时间窗计算器：计算出静态数据下一次失效的绝对时间戳
+   * @returns {number} expireDate.getTime() - 返回下一次数据失效的毫秒级时间戳
+   */
+  function getNextExpireTime() {
+    const now = new Date();
+    const currentHours = now.getHours();
+    const currentMinutes = now.getMinutes();
+    const currentTotalMinutes = currentHours * 60 + currentMinutes;
+
+    // 换班与计划更新断点 (分钟)：07:45, 14:45, 15:45, 23:45
+    const breakpoints = [465, 885, 945, 1425];
+    let nextBP = null;
+
+    for (let i = 0; i < breakpoints.length; i++) {
+      if (currentTotalMinutes < breakpoints[i]) {
+        nextBP = breakpoints[i];
+        break;
+      }
+    }
+
+    let expireDate = new Date(now.getTime());
+    if (nextBP === null) { 
+      // 超过 23:45，下一个断点是明天的 07:45
+      expireDate.setDate(expireDate.getDate() + 1);
+      expireDate.setHours(7, 45, 0, 0);
+    } else {
+      // 在当天的某个断点
+      expireDate.setHours(Math.floor(nextBP / 60), nextBP % 60, 0, 0);
+    }
+    return expireDate.getTime();
+  }
+
+  /**
+   * 智能请求分发器：拦截 F5 刷新，附带缓存自愈机制
+   * 如果缓存有效则请求动态数据，否则请求全量数据
+   */
+  async function smartFetchPlanAndBom() {
+    const expireTime = localStorage.getItem("staticDataExpireTime");
+    const currentTime = new Date().getTime();
+    let needFullFetch = true;
+
+    // 验证保质期，并且【强制检查】关键缓存是否为空（修复缓存被误杀的问题）
+    if (expireTime && currentTime < parseInt(expireTime)) {
+      const cachedBom = await idbGet("sSArrInjAllPlanBomData");
+      const cachedMachine = await idbGet("sSArrAllMachineInfo");
+      // 只有在缓存完好、有数据且未过期时，才阻断全量请求！
+      if (cachedBom && cachedBom.length > 0 && cachedMachine && cachedMachine.length > 0) {
+        needFullFetch = false;
+      }
+    }
+
+    if (needFullFetch) {
+      console.log("🟢 发起【全量巨无霸】请求...");
+      swalInfo("正在拉取最新排产与主数据...", { footer: '<p style="color:red">数据量较大，请耐心等待</p>' });
+      google.script.run.withFailureHandler(err => swalError("请求失败：" + err.message)).withSuccessHandler(handleFullData).getAllPlan();
+    } else {
+      console.log("⚡ 发起【极速动态】请求...");
+      swalInfo("正在同步实时生产状态...", { footer: '<p style="color:green">静态缓存有效，正在极速对齐</p>' });
+      google.script.run.withFailureHandler(err => swalError("请求失败：" + err.message)).withSuccessHandler(handleDynamicData).getDynamicPlanOnly();
+    }
+  }
+
+  /**
+   * 极速通道数据拼装器 (欺骗旧的渲染逻辑)
+   * @param {Array} res - 从极速通道接口返回的数据数组
+   */
+  async function handleDynamicData(res) {
+    if (res[0] !== "OK") return swalError(res[1]);
+    
+    // 从 IndexedDB 把沉睡的静态数据挖出来，原样塞回 res 数组里
+    res[6] = await idbGet("sSArrInjAllPlanBomData") || [];
+    res[7] = await idbGet("sSArrInjAllPlanParaData") || [];
+    
+    // 补回机台信息、5S/AM点检表PDF链接等
+    res[10] = await idbGet("sSArrAllMachineInfo") || [];
+    res[11] = await idbGet("sSArrInjAllMachineType") || [];
+    res[12] = await idbGet("sSArrInjAll5SAMLink") || [];
+    res[13] = await idbGet("sSArrInjAllPlanPkBomData") || []; 
+
+    // 数据拼装完成，直接丢给原来的处理函数
+    originalPlanSuccessHandler(res);
+    Swal.close();
+  }
+
+  /**
+   * 全量通道数据处理器
+   * @param {Array} res - 从全量接口返回的数据数组
+   */
+  async function handleFullData(res) {
+    if (res[0] !== "OK") return swalError(res[1]);
+    
+    // 【核心动作】：打上保质期标签！
+    localStorage.setItem("staticDataExpireTime", getNextExpireTime());
+
+    // 丢给原来的处理函数渲染
+    originalPlanSuccessHandler(res);
+  }
+
+  // 屏幕常亮相关全局变量
+  const btnWake = document.getElementById('btnWakeScreen');
+  let wakeLock = null;
+  let judgeBright = false;
+
+  /**
+   * 请求屏幕常亮锁定
+   */
+  async function requestWakeLock() {
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => {
+        btnWake.innerHTML = "🔌";
+        showMyToast("屏幕常亮已停用");
+        judgeBright = false;
+      });
+      btnWake.innerHTML = "💡";
+      showMyToast("屏幕常亮已启用");
+      judgeBright = true;
+    } catch (err) {
+      btnWake.innerHTML = "🔌";
+      showMyToast("屏幕常亮无法激活：" + err.message);
+      judgeBright = false;
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+  }
+
+  /**
+   * 释放屏幕常亮锁定
+   */
+  async function releaseWakeLock() {
+    if (wakeLock) {
+      try {
+        await wakeLock.release();
+      } catch (e) {}
+      wakeLock = null;
+    }
+    btnWake.innerHTML = "🔌";
+    showMyToast("屏幕常亮已停用");
+    judgeBright = false;
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }
+
+  /**
+   * 监听页面可见性变化，恢复屏幕常亮
+   */
+  function handleVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+      requestWakeLock();
+    }
+  }
+
+  /**
+   * 手动切换屏幕常亮状态
+   */
+  function wakeScreen() {
+    if (judgeBright) {
+      releaseWakeLock();
+    } else {
+      if ('wakeLock' in navigator) {
+        requestWakeLock();
+      } else {
+        btnWake.innerHTML = "🔌";
+        showMyToast("您的浏览器尚不支持 Wake Lock API");
+        judgeBright = false;
+      }
+    }
+  }
+
+  /**
+   * 显示自定义 Toast 提示
+   * @param {string} msg - 提示内容
+   */
+  function showMyToast(msg) {
+    $('#myToast .toast-body').text(msg);
+    $('#myToast').toast('show');
+  }
+
+  let execUrl = "";
+
+  /*============安东状态与产出时间常量定义===========*/
+  const arrStatus = [1, 2, 3, 0];
+  const arrBtnDisable = [[true, false, false], [true, true, false], [false, true, true], [true, true, true]];
+  const arrRepair = ["#callRepair", "#startRepair", "#endRepair"];
+  const arrBtnTwinkleClass = ["btn-twinkle-warning", "btn-twinkle-danger", "btn-twinkle-success"];
+  const arrBtnClass = ["btn-warning", "btn-danger", "btn-success"];
+
+  // 直配机台直配品种标准产出、标准工时定义
+  const arrDirectDeliveryOutTimeInfo = [
+    ["E0EN0004", "C0000001961", 33216, 2.5, "M1IM0102"],
+    ["E0EN0004", "C0000004314", 27648, 2.5, "M1IM0102"],
+    ["E0EN0004", "C0000007982", 33216, 2.5, "M1IM0102"],
+    ["E0EN0004", "C0000009964", 33216, 2.5, "M1IM0102"],
+    ["E0EN0006", "C0000001961", 33216, 2.5, "M1IM0004"],
+    ["E0EN0006", "C0000004314", 27648, 2.5, "M1IM0004"],
+    ["E0EN0006", "C0000007982", 33216, 2.5, "M1IM0004"],
+    ["E0EN0006", "C0000009964", 33216, 2.5, "M1IM0004"],
+    ["E0EN0007", "C0000001961", 33216, 2.5, "M1IM0004"],
+    ["E0EN0007", "C0000004314", 27648, 2.5, "M1IM0004"],
+    ["E0EN0007", "C0000007982", 33216, 2.5, "M1IM0004"],
+    ["E0EN0007", "C0000009964", 33216, 2.5, "M1IM0004"]
+  ];
+
+  /*==================禁用鼠标右键和F12==================*/
+  window.onload = function() {       
+    document.onkeydown = function() {
+      let e = window.event || arguments[0];
+      if (e.keyCode == 123) {         
+        return false;
+      } else if ((e.ctrlKey) && (e.shiftKey) && (e.keyCode == 73)) {
+        return false;
+      }
+    };
+    document.oncontextmenu = function() {
+      return false;
+    };
+  };
+
+  // 全局变量声明
+  let arrSarmPlanData = [];
+  let sarmDateShift = "";
+  let sarmDesPreNo = "";
+  let sarmDes = "";
+  let arrMachinePrevNextPlanInfo = [];
+  let arrMachinePrevSarmInfo = [];
+  let arrPreNo = [];
+  let arrWhSarm_NowDateShift = [];
+  let arrViewPlanMachine = [];
+  let arrViewPlanMaterial = [];
+  let arrSarmTotalData = [];
+  let objSarmTotalData = JSON.stringify(arrSarmTotalData);
+  let arrSarmTotalData_Machine = [];
+  let arrAllMachine = [];
+  let arrPostageAllData = [];
+  let objPostageAllData = JSON.stringify(arrPostageAllData);
+  let objPostageAllData_Machine = [];
+  let arrIotMachine = [];
+  let arrTemplate = [];
+  let arrInjAllPlanBomData = [];
+  let arrInjAllPlanParaData = [];
+  let arrInjAllSelfCheckRecord = [];
+  let arrInjAllHandOverRecord = [];
+  let arrAllMachineInfo = [];
+  let arrInjAllMachineType = [];
+  let arrInjAll5SAMLink = [];
+  let arrInjAllPlanPkBomData = [];
+
+  // IndexedDB 实例管理
+  let dbPromise = null;
+
+  /**
+   * 打开或创建 IndexedDB 数据库
+   * @returns {Promise<IDBDatabase>} 返回数据库实例
+   */
+  function openDB() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open('cp_app_db', 1);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('kv')) {
+          db.createObjectStore('kv');
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      req.onblocked = () => console.warn('IndexedDB 升级被阻塞，可能有旧页面未关闭');
+    });
+    return dbPromise;
+  }
+
+  /**
+   * 将数据存入 IndexedDB
+   * @param {string} key - 存储键
+   * @param {any} value - 存储值
+   * @returns {Promise<boolean>}
+   */
+  async function idbSet(key, value) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readwrite');
+      tx.objectStore('kv').put(value, key);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /**
+   * 从 IndexedDB 获取数据
+   * @param {string} key - 存储键
+   * @returns {Promise<any>}
+   */
+  async function idbGet(key) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readonly');
+      const req = tx.objectStore('kv').get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /**
+   * 批量将数据存入 IndexedDB
+   * @param {Array} pairs - 形如 [[key, value], [key2, value2]] 的数组
+   * @returns {Promise<boolean>}
+   */
+  async function idbSetMany(pairs) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readwrite');
+      const store = tx.objectStore('kv');
+      for (const [k, v] of pairs) store.put(v, k);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  
+  /*====== 窗体载入调用监听程序 ======*/
+  $(document).ready(function () {
+    google.script.run.withSuccessHandler(result => { execUrl = result; console.log(execUrl); }).getReleaseWebPage();
+    $("#todayDate").val(dayjs().format("YYYY-MM-DD").toString());
+    
+    let nowHour = new Date().getHours();
+    if (nowHour >= 0 && nowHour < 8) {
+      $("#todayShift").selectpicker('val', '夜');
+    } else if (nowHour >= 8 && nowHour < 16) {
+      $("#todayShift").selectpicker('val', '早');
+    } else if (nowHour >= 16 && nowHour < 24) {
+      $("#todayShift").selectpicker('val', '中');
+    }
+    
+    setInterval(updateTimeAndTriggerAutoRefresh, 1000);
+    
+    let viewId = sessionStorage.getItem("viewId");
+    let viewName = sessionStorage.getItem("viewName");
+    $("#viewId").val(viewId);
+    $("#viewName").val(viewName);
+
+    // 启动全新的双轨制智能引擎
+    smartFetchPlanAndBom();
+
+    /**
+     * 安全的 sessionStorage 存储封装
+     * @param {Storage} storage - 本地存储对象
+     * @param {string} key - 键名
+     * @param {string} value - 键值
+     * @returns {boolean} 是否成功
+     */
+    function safeSetItem(storage, key, value) {
+      try { 
+        storage.setItem(key, value);
+        return true;
+      } catch (e) { 
+        console.warn(`storage set failed: ${key}`, e); 
+        return false;
+      }
+    }
+
+    /**
+     * 原始的全量数据成功处理函数，暴露给 window 以便动态获取调用
+     * @param {Array} result - 后台返回的数据
+     */
+    window.originalPlanSuccessHandler = async function(result) {
+      try {
+        if (result && result[0] === 'OK') {
+          const arrData = result[1];
+          const arrBom  = result[2];
+
+          // 较小数据放 sessionStorage
+          safeSetItem(sessionStorage, 'sSAllPlan', JSON.stringify(arrData));
+          safeSetItem(sessionStorage, 'sSAllBom',  JSON.stringify(arrBom));
+          arrAllMachine = result[3];
+          
+          // 大数组准备存 IndexedDB
+          const arrIotMachine            = result[4];
+          const arrInjAllPlanBomData     = result[6];
+          const arrInjAllPlanParaData    = result[7];
+          const arrInjAllSelfCheckRecord = result[8];
+          const arrInjAllHandOverRecord  = result[9];
+          const arrAllMachineInfo        = result[10];
+          const arrInjAllMachineType     = result[11];
+          const arrInjAll5SAMLink        = result[12];
+          const arrInjAllPlanPkBomData   = result[13];
+
+          // 批量写入 IndexedDB
+          await idbSetMany([
+            ['sSIotMachine', arrIotMachine],
+            ['sSArrInjAllPlanBomData', arrInjAllPlanBomData],
+            ['sSArrInjAllPlanParaData', arrInjAllPlanParaData],
+            ['sSArrInjAllSelfCheckRecord', arrInjAllSelfCheckRecord],
+            ['sSArrInjAllHandOverRecord', arrInjAllHandOverRecord],
+            ['sSArrAllMachineInfo', arrAllMachineInfo],
+            ['sSArrInjAllMachineType', arrInjAllMachineType],
+            ['sSArrInjAll5SAMLink', arrInjAll5SAMLink],
+            ['sSArrInjAllPlanPkBomData', arrInjAllPlanPkBomData],
+          ]);
+          
+          Swal.fire({
+            allowOutsideClick: false, icon: 'success', title: '提醒', text: '数据加载结束……', showConfirmButton: false, timer: 1500
+          });
+        } else {
+          Swal.fire({
+            allowOutsideClick: false, icon: 'error', title: '提醒', text: '数据未加载成功！', showConfirmButton: false, timer: 1500
+          });
+        }
+      } catch (e) {
+        console.error('htmlGetAllPlan handler error:', e);
+        Swal.fire({
+          allowOutsideClick: false, icon: 'error', title: '提醒', html: `<p>${e && e.message ? e.message : '解析/存储返回数据出错'}</p>`, showConfirmButton: true
+        });
+      }
+    };
+    
+    // 初始化显示空状态插画
+    renderEmptyState("请选择机台并点击【查看】获取最新计划 🚀");
+  });
+
+  /**
+   * 定时检测系统状态并提醒刷新或登录
+   */
+  function updateTimeAndTriggerAutoRefresh() {
+    const PLAN_UPDATE_TIME = '14:45';
+    const arrSarmUpdateTime = ['01:15', '09:15', '17:15'];
+    const arrHandOverTime = ['07:45', '15:45', '23:45'];
+    let current = dayjs().format('HH:mm');
+    
+    if (current === PLAN_UPDATE_TIME) {
+      Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "请刷新页面，后台计划数据已更新", showConfirmButton: false });
+    }
+    if (arrSarmUpdateTime.indexOf(current) != -1) {
+      Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "请刷新页面，补减物料汇总已更新", showConfirmButton: false });
+    }
+    if (arrHandOverTime.indexOf(current) != -1) {
+      Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "请重新登录，交接班时间已到", showConfirmButton: false });
+    }
+  }
+
+  /**
+   * 展示精美的空状态插画
+   * @param {string} message - 要展示的提示信息
+   */
+  function renderEmptyState(message) {
+    let emptyHtml = `
+      <div class="empty-container">
+        <i class="fa fa-coffee empty-icon"></i>
+        <div class="empty-text">${message || '暂无生产计划，请选择机台并点击【查看】'}</div>
+      </div>
+    `;
+    $("#tbodydisplay").html(`<tr class="empty-state-row"><td colspan="21">${emptyHtml}</td></tr>`);
+  }
+  
+  /**
+   * 查看选择机台的排产计划
+   */
+  async function viewPlan() {
+    let machineContinus = $("#machineContinus").is(":checked");
+    let viewMachine = $("#viewMachine").val();
+    let todayDate = dayjs($("#todayDate").val()).format("YYYY-MM-DD").toString();
+    let todayShift = $("#todayShift").val();
+    let now = new Date();
+    let nowTime = dayjs(now).format("YYYY-MM-DD HH:mm:ss");
+    let nowDate = dayjs(now).format("YYYY-MM-DD");
+    let nextDate = dayjs(new Date(now.getTime() + 24 * 3600 * 1000)).format("YYYY-MM-DD");
+    let nowHourMinute = dayjs(now).format("HH:mm");
+    
+    // 根据当前时间调整所处班次和逻辑日期
+    if (nowHourMinute > "23:44" && nowHourMinute < "24:00") {
+      todayShift = "夜"; todayDate = nextDate;
+    } else if (nowHourMinute >= "00:00" && nowHourMinute < "07:45") {
+      todayShift = "夜"; todayDate = nowDate;
+    } else if (nowHourMinute > "07:44" && nowHourMinute < "15:45") {
+      todayShift = "早"; todayDate = nowDate;
+    } else if (nowHourMinute > "15:44" && nowHourMinute < "23:45") {
+      todayShift = "中"; todayDate = nowDate;
+    }
+    
+    if (viewMachine != "") {
+      Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在获取计划……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>' });
+      let txtPlan = sessionStorage.getItem("sSAllPlan");
+      let arrPlan = JSON.parse(txtPlan);
+      let arrData = [];
+      let deptNum = viewMachine.charAt(1);
+      
+      // 提取符合条件的排产数据
+      if (!machineContinus && viewMachine.substr(0, 1) != "S") {
+        let arrMoldType = arrPlan.filter(v => v[4].toString().substring(0, 8) == viewMachine.toString().substring(0, 8)).map(v => v[8].toString().split("_")[0].split("-")[1]);
+        arrData = arrPlan.filter(function(x) { 
+          return arrMoldType.indexOf(x[8].toString().split("_")[0].split("-")[1]) != -1 && x[9] != "" && x[4].toString().charAt(1) == deptNum;
+        });
+      } else if (machineContinus || viewMachine.substr(0, 1) == "S") {
+        arrData = arrPlan.filter(function(x) { return x[4].toString().substring(0, 8) == viewMachine.toString().substring(0, 8); });
+      }
+      
+      arrSarmPlanData = arrData;
+      arrViewPlanMachine = Array.from(new Set(arrData.map(v => v[4])));
+      let arrViewCurrentMachinesPlanMaterial = arrData.filter(v => v[7].indexOf("【|】") != -1).map(v => v[7].split("【|】")[1]);
+      let strViewCurrentMachinesPlanMaterial = arrViewCurrentMachinesPlanMaterial.join("|");
+      arrViewPlanMaterial = Array.from(new Set(strViewCurrentMachinesPlanMaterial.split("|")));
+      arrViewPlanMaterial = arrViewPlanMaterial.filter(v => v != "");
+      
+      $("#tabdisplay tr:not(:first)").empty("");
+      let todayDateShift = "";
+      let nowDateVal = dayjs($("#todayDate").val()).format("YYYYMMDD").toString();
+      
+      if (todayShift == "早") { todayDateShift = nowDateVal + 2; } 
+      else if (todayShift == "中") { todayDateShift = nowDateVal + 3; } 
+      else if (todayShift == "夜") { todayDateShift = nowDateVal + 1; }
+      
+      let table = $("#tbodydisplay");
+      let tempDateShift = "";
+      let displayStyle = "";
+      let judgeDisabled = "";
+      let tempBackgroundColor = "white";
+      let tempLeftOutBC = "white";
+      let outFontColor = ";font-color:black";
+      let arrDirectDeliveryIndex = arrDirectDeliveryOutTimeInfo.map(v => v[0]);
+      let arrDirectDeliveryMachine = Array.from(new Set(arrDirectDeliveryIndex));
+      let position = arrDirectDeliveryMachine.indexOf(viewMachine);
+      let lastFontColor = ";font-color:black";
+      
+      if (arrData.length > 0) {
+        // 循环渲染表格行
+        for (let k = 0; k < arrData.length; k++) {
+          tempDateShift = "";
+          judgeDisabled = "";
+          outFontColor = "";
+          lastFontColor = "";
+          let tempDate = dayjs(arrData[k][2]).format("YYYYMMDD").toString();
+          
+          if (arrData[k][3] == "早") { tempDateShift = tempDate + 2; } 
+          else if (arrData[k][3] == "中") { tempDateShift = tempDate + 3; } 
+          else if (arrData[k][3] == "夜") { tempDateShift = tempDate + 1; }
+          
+          tempBackgroundColor = "white";
+          if (Number(tempDateShift) < Number(todayDateShift)) { tempBackgroundColor = "#f1f3f5"; } // 极浅雾霾灰
+          
+          tempLeftOutBC = "white";
+          if (Number(arrData[k][15]) <= 0) { tempLeftOutBC = "#f1f3f5"; } // 极浅雾霾灰
+          
+          displayStyle = "";
+          if (arrData[k][13].toString().indexOf("1MMS") == -1) { displayStyle = "display:none"; }
+          if (arrData[k][4].toString().length != 8) { judgeDisabled = " disabled"; }
+          if (arrData[k][17] == "" || arrData[k][1] == "") { outFontColor = ";color:white"; }
+          if (arrData[k][11].indexOf("最后一单") != -1) { lastFontColor = ";color:red"; }
+          
+          let addRowStr = "<tr>" +
+            "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][0] + "</td>" +   /**序号**/
+            "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + lastFontColor + "'>" + arrData[k][1].toString().replace(/\n/g, "<br>") + "</td>" + /**PO**/
+            "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][2] + "</td>" +   /**日期**/
+            "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][3] + "</td>" +   /**班次**/
+            "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][4] + "</td>" +   /**AEM**/
+            "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][5] + "</td>" +   /**机器状态**/
+            "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][6] + "</td>" +   /**拌料编码**/
+            "<td style='font-size:12px;text-align:center'>" + arrData[k][7] + "</td>" +   /**产品名称**/
+            "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][8] + "</td>" +   /**产品模具**/
+            "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][9] + "</td>" +   /**牙柄编码**/
+            "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][10] + "</td>" +   /**手包编码**/
+            "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][11] + "</td>" + /**箱含量**/
+            "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][12] + "</td>" +   /**预留**/
+            "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][13] + "</td>" +   /**预留**/
+            "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][14] + "</td>" +   /**预留**/
+            "<td style='font-size:12px;text-align:center;background-color:" + tempLeftOutBC + outFontColor + "'>" + arrData[k][15] + "</td>" +   /**剩余计划**/
+            "<td style='font-size:12px;text-align:center;background-color:#fff3cd; font-weight:bold; color:#856404" + outFontColor + "'>" + arrData[k][16] + "</td>" +   /**计划**/
+            "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempLeftOutBC + "'>" + arrData[k][17] + "</td>" +   /**产出**/
+            "<td style='vertical-align:middle; padding:5px 8px;'>" +
+              "<div class='row' style='margin:0 0 4px 0;'>" +
+                "<div class='col-6' style='padding:0 3px;'>" +
+                  "<button class='btn btn-primary btn-sm btn-block shadow-sm' style='border-radius:20px; font-weight:bold; padding:4px 0; font-size:12px;' onclick='viewBom(this)'><i class='fa fa-file-text-o'></i> BOM</button>" +
+                "</div>" +
+                "<div class='col-6' style='padding:0 3px;'>" +
+                  "<button class='btn btn-info btn-sm btn-block shadow-sm text-white' style='border-radius:20px; font-weight:bold; padding:4px 0; font-size:12px;' onclick='firstConfirm(this)'" + judgeDisabled + "><i class='fa fa-star'></i> 首件</button>" +
+                "</div>" +
+              "</div>" +
+              "<div class='row' style='margin:0;'>" +
+                "<div class='col-6' style='padding:0 3px;'>" +
+                  "<button class='btn btn-success btn-sm btn-block shadow-sm' style='border-radius:20px; font-weight:bold; padding:4px 0; font-size:12px;' onclick='teamCheck(this)'" + judgeDisabled + "><i class='fa fa-users'></i> 班组</button>" +
+                "</div>" +
+                "<div class='col-6' style='padding:0 3px;'>" +
+                  "<button class='btn btn-danger btn-sm btn-block shadow-sm' style='border-radius:20px; font-weight:bold; padding:4px 0; font-size:12px;' onclick='equipmentCheck(this)'" + judgeDisabled + "><i class='fa fa-cogs'></i> 设备</button>" +
+                "</div>" +
+              "</div>" +
+            "</td>" +   /**操作按钮**/
+            "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][18] + "</td>" +   /**PO初始信息**/
+            "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][19] + "</td>" +   /**PO历史信息**/
+          "</tr>";
+          table.append(addRowStr);
+        }
+        $("#divScroll").scrollLeft(18 * 300);
+      } else {
+        renderEmptyState("☕ 咖啡时间！当前机台暂无后续生产任务...");
+        
+        let inputResult = "";
+        let moldNoFromInputResult = "";
+        let machineStatus = "";
+        let machineDes = "";
+        let positionInput = -1;
+        
+        // 针对直配机台无计划时的交互弹窗
+        if (position != -1) {
+          let jsonPageSku = {};
+          let arrPageSku = Array.from(new Set(arrDirectDeliveryOutTimeInfo.map(v => v[1])));
+          for (let i = 0; i < arrPageSku.length; i++) {
+            jsonPageSku[arrPageSku[i]] = arrPageSku[i];
+          }
+          await Swal.fire({
+            title: '选择直配品种SKU',
+            text: "",
+            input: "select",
+            inputOptions: jsonPageSku,
+            inputPlaceholder: '自检需要选择SKU……',
+            focusConfirm: true,
+            showCancelButton: true,
+            showDenyButton: true,
+            confirmButtonColor: '#3085d6',
+            denyButtonColor: '#d33',
+            cancelButtonColor: '#b8b8b8',
+            confirmButtonText: '自检(班组)',
+            denyButtonText: '周检(设备)',
+            cancelButtonText: '返回',
+          }).then((result) => {
+            if (result.isConfirmed) {
+              if (result.value.length < 2) {
+                console.log("自检时SKU不可为空");
+                Swal.fire("自检时SKU不可为空");
+                return false;
+              } else {
+                inputResult = result.value; 
+                positionInput = arrDirectDeliveryIndex.indexOf(viewMachine);
+                if (positionInput != -1) {
+                  moldNoFromInputResult = arrDirectDeliveryOutTimeInfo[positionInput][4];
+                }
+              }
+            } else if (result.isDenied) {    
+              inputResult = "";
+            } else {
+              inputResult = "";
+            }
+          });
+        }
+        
+        if (!inputResult) {
+          judgeDisabled = " disabled";
+          machineStatus = "停开";
+          machineDes = "仅供设备周检用";
+        } else {
+          judgeDisabled = "";
+          machineStatus = "直配";
+          machineDes = "仅供班组自检用";
+        }
+        
+        let addRowStr = "<tr>" +
+          "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>-1</td>" +   /**序号**/
+          "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'></td>" +   /**PO**/
+          "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + todayDate + "</td>" +  /**日期**/
+          "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + todayShift + "</td>" +   /**班次**/
+          "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + viewMachine + "</td>" +   /**AEM**/
+          "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + machineStatus + "</td>" +   /**机器状态**/
+          "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + inputResult + "</td>" +   /**拌料编码**/
+          "<td style='font-size:12px;text-align:center'>" + machineDes + "</td>" +   /**产品名称**/
+          "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + moldNoFromInputResult + "</td>" +   /**产品模具**/
+          "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + inputResult + "</td>" +   /**牙柄编码**/
+          "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'></td>" +   /**手包编码**/
+          "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'></td>" +   /**箱含量**/
+          "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'></td>" +  /**预留**/
+          "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'></td>" +   /**预留**/
+          "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'></td>" +   /**预留**/
+          "<td style='font-size:12px;text-align:center;background-color:" + tempLeftOutBC + "'></td>" +   /**剩余计划**/
+          "<td style='font-size:12px;text-align:center;background-color:#fff3cd'></td>" +   /**计划**/
+          "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempLeftOutBC + "'></td>" +   /**产出**/
+          "<td style='vertical-align:middle; padding:5px 8px;'>" +
+            "<div class='row' style='margin:0 0 4px 0;'>" +
+              "<div class='col-6' style='padding:0 3px;'>" +
+                "<button class='btn btn-primary btn-sm btn-block shadow-sm' style='border-radius:20px; font-weight:bold; padding:4px 0; font-size:12px;' onclick='viewBom(this)'><i class='fa fa-file-text-o'></i> BOM</button>" +
+              "</div>" +
+              "<div class='col-6' style='padding:0 3px;'>" +
+                "<button class='btn btn-info btn-sm btn-block shadow-sm text-white' style='border-radius:20px; font-weight:bold; padding:4px 0; font-size:12px;' onclick='firstConfirm(this)'" + judgeDisabled + "><i class='fa fa-star'></i> 首件</button>" +
+              "</div>" +
+            "</div>" +
+            "<div class='row' style='margin:0;'>" +
+              "<div class='col-6' style='padding:0 3px;'>" +
+                "<button class='btn btn-success btn-sm btn-block shadow-sm' style='border-radius:20px; font-weight:bold; padding:4px 0; font-size:12px;' onclick='teamCheck(this)'><i class='fa fa-users'></i> 班组</button>" +
+              "</div>" +
+              "<div class='col-6' style='padding:0 3px;'>" +
+                "<button class='btn btn-danger btn-sm btn-block shadow-sm' style='border-radius:20px; font-weight:bold; padding:4px 0; font-size:12px;' onclick='equipmentCheck(this)'><i class='fa fa-cogs'></i> 设备</button>" +
+              "</div>" +
+            "</div>" +
+          "</td>" +   /**操作按钮**/
+          "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'></td>" +   /**PO初始信息**/
+          "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'></td>" +   /**PO初始历史信息**/
+        "</tr>";
+        table.append(addRowStr);
+      }
+  
+      Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: "计划获取成功", showConfirmButton: false, timer: 1500 });
+    } else {
+      renderEmptyState("请选择机台并点击【查看】获取最新计划 🚀");
+      Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: '请选择机台……', showConfirmButton: true });
+      return false;
+    }
+  }
+  
+  /*==================选择机台select，清空选择项==================*/
+  $('#viewMachine').on('show.bs.select', function() {
+    $('#viewMachine').selectpicker('val', ['']);
+    $('#viewMachine').selectpicker('refresh');
+    $("#machineContinus").prop("checked", false);
+  });
+  
+  /**
+   * 【BOM】按钮点击事件
+   * @param {HTMLElement} obj - 按钮 DOM 元素
+   */
+  function viewBom(obj) {
+    // 智能往上查找最近的 tr 标签
+    let $tr = $(obj).closest("tr");
+    let moldSku = $tr.find("td").eq(6).text();
+    let machine = $tr.find("td").eq(4).text();
+    let sku = $tr.find("td").eq(9).text();
+    let psku = $tr.find("td").eq(10).text();
+    
+    sessionStorage.setItem("viewBomMachine", machine);
+    sessionStorage.setItem("viewBomSku", sku);
+    sessionStorage.setItem("viewBomPsku", psku);
+    
+    if (machine.match("FCS") || machine.match("E0E")) {
+      sessionStorage.setItem("viewBomMoldType", "Y");
+    } else {
+      sessionStorage.setItem("viewBomMoldType", "N");
+    }
+    window.open(execUrl + "?v=ViewBom");
+  }
+  
+  /**
+   * 【首件】按钮点击事件（已升级为多选拾取器）
+   * @param {HTMLElement} obj - 按钮 DOM 元素
+   */
+  function firstConfirm(obj) {
+    let trSeq = $(obj).closest("tr").index();
+    let tbody = $("#tbodydisplay");
+    let mainMachine = tbody.find("tr").eq(trSeq).find("td").eq(4).text().substring(0, 8);
+    
+    // 【关键】：清空队列，并设定全局标志位，告诉地图拾取器这是“首件”任务
+    window.tempCheckQueue = []; 
+    window.currentActionType = "FirstCheck";
+    
+    openLayoutPicker(mainMachine);
+  }
+
+  /**
+   * 获取当前逻辑班次标识 (用于校验两小时自检缓存是否跨班次)
+   * @returns {string} 例如 "2026-05-16_早"
+   */
+  function getCurrentLogicalShift() {
+    let now = new Date();
+    let nowHM = dayjs(now).format("HH:mm");
+    let tDate = dayjs(now).format("YYYY-MM-DD");
+    let nDate = dayjs(now.getTime() + 86400000).format("YYYY-MM-DD");
+    if (nowHM > "23:44" && nowHM <= "23:59") return nDate + "_夜";
+    if (nowHM >= "00:00" && nowHM < "07:45") return tDate + "_夜";
+    if (nowHM >= "07:45" && nowHM < "15:45") return tDate + "_早";
+    return tDate + "_中";
+  }
+  
+  /**
+   * 【班组】按钮点击事件
+   * @param {HTMLElement} obj - 按钮 DOM 元素
+   */
+  function teamCheck(obj) {
+    // 智能获取行号
+    let trSeq = $(obj).closest("tr").index();
+    $("#teamCheckTypeRow").val(trSeq);
+    $("#modalTeamCheckType").modal("show");
+  }
+  
+  /*============点击【交接班检查】按钮后弹出检查类别============*/
+  $("#btnHandOver").on("click", function() {
+    let arrMonth = [1, 4, 7, 10];
+    let backupIf = backupFrequency(arrMonth);
+    if (backupIf == "Y") {
+      Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "当前时间段，系统正在备份数据", showConfirmButton: true, footer: '<p>请0:00后再运行</p>' });
+      return false;
+    }
+
+    const trSeq = $("#teamCheckTypeRow").val();
+    const tbody = $("#tbodydisplay");
+    // 提取当前点击行的机台号，用于默认定位
+    const mainMachine = tbody.find("tr").eq(trSeq).find("td").eq(4).text().substring(0, 8);
+
+    // 【关键】：清空队列，并设定全局标志位，告诉地图拾取器这是“交接班”任务
+    window.tempCheckQueue = []; 
+    window.currentActionType = "HandOver"; 
+
+    openLayoutPicker(mainMachine);
+    $("#modalTeamCheckType").modal("hide");
+  });
+
+  /*============点击【两小时自检】按钮后弹出检查类别============*/
+  $("#btnSelfCheck").off("click").on("click", async function() {
+    const trSeq = $("#teamCheckTypeRow").val();
+    const tbody = $("#tbodydisplay");
+    const mainMachine = tbody.find("tr").eq(trSeq).find("td").eq(4).text().substring(0, 8);
+
+    window.tempCheckQueue = []; 
+    window.currentActionType = "SelfCheck"; 
+
+    // 1. 尝试读取本地自检记忆缓存
+    let cacheStr = localStorage.getItem("lastSelfCheckCache");
+    let useCacheDirectly = false;
+    let loadCacheToMap = false;
+
+    if (cacheStr) {
+      try {
+        let cacheData = JSON.parse(cacheStr);
+        let currentShift = getCurrentLogicalShift();
+        
+        // 防呆1：检查是否为同班次 (跨班次则缓存失效)
+        if (cacheData.shiftKey === currentShift && cacheData.tasks && cacheData.tasks.length > 0) {
+          let allPlans = JSON.parse(sessionStorage.getItem("sSAllPlan") || "[]");
+          let allValid = true;
+          
+          // 防呆2：拿着缓存去活的排产计划(sSAllPlan)里查岗，机台停机或SKU不存在则验证失败！
+          for (let i = 0; i < cacheData.tasks.length; i++) {
+            let task = cacheData.tasks[i];
+            let m = task.machine.substring(0, 8);
+            let sku = task.sku;
+            let found = allPlans.some(p => p[4] && p[4].toString().substring(0,8) === m && p[9] && p[9].toString().trim() === sku);
+            if (!found) {
+              allValid = false;
+              break; 
+            }
+          }
+
+          if (allValid) {
+            // 拼装高颜值的任务列表 HTML
+            let taskListHtml = "";
+            for (let i = 0; i < cacheData.tasks.length; i++) {
+              taskListHtml += "<div style='text-align:left; padding:4px 20px; font-size:14px; color:#333;'>🟢 <b>" + cacheData.tasks[i].machine + "</b> - " + cacheData.tasks[i].sku + "</div>";
+            }
+            let swalHtml = "<div style='font-size:14px; margin-bottom:10px; font-weight:bold; color:#d33;'>是否需要变更机台与SKU？</div>" + 
+                           "<div style='background:#f8f9fa; border-radius:5px; padding:10px; margin-bottom:10px; border:1px solid #dee2e6;'>" + taskListHtml + "</div>";
+            
+            // 弹出询问框
+            let res = await Swal.fire({
+              title: "发现上次自检记录",
+              html: swalHtml,
+              icon: "question",
+              showCancelButton: true,
+              confirmButtonColor: "#28a745",
+              cancelButtonColor: "#6c757d",
+              confirmButtonText: "不需要 (直接进入)",
+              cancelButtonText: "需要 (变更勾选)",
+              allowOutsideClick: false
+            });
+
+            if (res.isConfirmed) {
+              useCacheDirectly = true;
+            } else {
+              // 用户点击“需要修改”，把缓存塞进队列，准备让地图回显
+              loadCacheToMap = true;
+              window.tempCheckQueue = cacheData.tasks;
+            }
+          }
+        }
+      } catch(e) { console.error("自检缓存读取失败", e); }
+    }
+
+    // 分流处理
+    if (useCacheDirectly) {
+      // 一键起飞，直接进自检单
+      sessionStorage.setItem("multiTaskQueue", JSON.stringify(window.tempCheckQueue.length > 0 ? window.tempCheckQueue : JSON.parse(cacheStr).tasks));
+      window.open(execUrl + "?v=SelfCheck");
+      $("#modalTeamCheckType").modal("hide");
+      return; 
+    }
+
+    // 正常弹出布局图（若有 loadCacheToMap = true，它会被回显为绿色）
+    openLayoutPicker(mainMachine);
+    $("#modalTeamCheckType").modal("hide");
+  });
+
+  /**
+   * 渲染布局图并处理点击拾取逻辑
+   * @param {string} mainMachine - 主控机台号
+   */
+  async function openLayoutPicker(mainMachine) {
+    // 根据主控机台的第2个字符动态判断车间
+    let workshop = "TB1";
+    if (mainMachine && mainMachine.charAt(1) === '2') {
+      workshop = "TB2";
+    }
+    sessionStorage.setItem("selfCheckDep", workshop);
+
+    // 从缓存读取布局
+    let layoutData = await idbGet('sSLayoutMap_' + workshop);
+    
+    // 如果缓存没有（首次加载），则显示加载动画并向后台请求
+    if (!layoutData) {
+      Swal.fire({
+        title: `首次加载 ${workshop} 车间布局...`,
+        text: '正在从服务器获取地图，请稍候',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      try {
+        // 使用 Promise 将异步变同步，阻塞等待地图数据返回
+        const res = await new Promise((resolve, reject) => {
+          google.script.run
+            .withFailureHandler(err => reject(err))
+            .withSuccessHandler(res => resolve(res))
+            .getPureInjLayout(workshop);
+        });
+
+        if (res[0] === "OK") {
+          layoutData = res[1];
+          await idbSet('sSLayoutMap_' + workshop, layoutData);
+          Swal.close(); // 数据拉取成功，关闭加载动画
+        } else {
+          throw new Error(res[1]);
+        }
+      } catch (error) {
+        Swal.fire({icon: 'error', title: '布局加载失败', text: error.message});
+        return; // 加载失败，直接终止
+      }
+    }
+
+    // 只有在确定拿到了数据之后，才渲染并弹出框
+    renderLayoutGrid(layoutData, mainMachine);
+    $("#modalLayoutPicker").modal("show");
+
+    // ==========================================
+    // 【新增体验优化：自动平滑滚动定位到主控机台】
+    // ==========================================
+    if (mainMachine) {
+      // 延迟 300 毫秒，等待 Bootstrap 模态框的淡入动画（fade）完全展开
+      // 如果不等动画结束就滚动，获取到的元素坐标会是错的
+      setTimeout(() => {
+        const $targetCell = $(`#layoutContainer td[data-machine='${mainMachine}']`);
+        if ($targetCell.length > 0) {
+          // 调用浏览器原生滚动 API，behavior: 'smooth' 带来丝滑动画，block: 'center' 让它居中显示
+          $targetCell[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 300);
+    }
+  }
+
+  /**
+   * 渲染车间布局图网格
+   * @param {Array} grid - 布局二维数组
+   * @param {string} mainMachine - 主控机台
+   */
+  function renderLayoutGrid(grid, mainMachine) {
+    const $container = $("#layoutContainer");
+    $container.empty();
+
+    const allPlans = JSON.parse(sessionStorage.getItem("sSAllPlan") || "[]");
+    const activeMachines = [...new Set(allPlans.map(p => p[4] && p[4].toString().substring(0,8)))];
+    let tableHtml = '<table class="table-bordered text-center layout-table" style="width:100%; table-layout:fixed; font-size:12px;"><tbody>';
+    
+    grid.forEach(row => {
+      tableHtml += '<tr>';
+      row.forEach(cellValue => {
+        let machineName = cellValue ? cellValue.toString().trim() : "";
+        let cellClass = "";
+        let cellStyle = "height: 45px; vertical-align: middle; padding: 2px; word-wrap: break-word;";
+
+        if (!machineName) {
+          cellClass = "bg-light";
+        } else if (activeMachines.includes(machineName) || machineName === mainMachine) {
+          cellClass = "bg-primary text-white machine-cell cell-selectable";
+          cellStyle += " cursor: pointer;";
+        } else {
+          cellClass = "bg-secondary text-white";
+        }
+
+        tableHtml += '<td class="' + cellClass + '" style="' + cellStyle + '" data-machine="' + machineName + '">' + machineName + '</td>';
+      });
+      tableHtml += '</tr>';
+    });
+
+    tableHtml += '</tbody></table>';
+    $container.append(tableHtml);
+
+    // 机台点击事件分流
+    $container.find(".cell-selectable").on("click", function() {
+      const $cell = $(this);
+      const clickedMachine = $cell.data("machine");
+      
+      // 核心交互：如果是绿色，点击则取消变蓝
+      if ($cell.hasClass("cell-selected")) {
+        $cell.removeClass("bg-success font-weight-bold cell-selected").addClass("bg-primary");
+        $cell.css("box-shadow", "none");
+        window.tempCheckQueue = window.tempCheckQueue.filter(task => task.machine !== clickedMachine);
+        updateTaskCount();
+        return;
+      }
+    
+      // 如果是蓝色，点击则分流选SKU
+      if (window.currentActionType === "HandOver") {
+        window.tempCheckQueue.push({ machine: clickedMachine });
+        $cell.removeClass("bg-primary").addClass("bg-success font-weight-bold cell-selected");
+        $cell.css("box-shadow", "inset 0 0 5px rgba(0,0,0,0.5)");
+        updateTaskCount();
+      } else {
+        showPlanPicker(clickedMachine, $cell, allPlans);
+      }
+    });
+
+    // ==========================================
+    // 【新增核心】：回显 window.tempCheckQueue 里已有的机台(变绿)
+    // ==========================================
+    if (window.tempCheckQueue && window.tempCheckQueue.length > 0) {
+      window.tempCheckQueue.forEach(task => {
+        let m = task.machine.substring(0, 8);
+        let $c = $container.find("td[data-machine='" + m + "']");
+        if ($c.length > 0 && !$c.hasClass("cell-selected")) {
+          $c.removeClass("bg-primary").addClass("bg-success font-weight-bold cell-selected");
+          $c.css("box-shadow", "inset 0 0 5px rgba(0,0,0,0.5)");
+        }
+      });
+      updateTaskCount();
+    }
+
+    // 主控机台自动选中判定
+    if (mainMachine) {
+      const $mainCell = $container.find("td[data-machine='" + mainMachine + "']");
+      // 【防呆】：只有当它没有因为缓存回显变绿时，才去触发自动选中
+      if ($mainCell.length > 0 && !$mainCell.hasClass("cell-selected")) {
+        if (window.currentActionType === "HandOver") {
+          $mainCell.click();
+        } else {
+          const machinePlans = allPlans.filter(p => p[4] && p[4].toString().substring(0,8) === mainMachine);
+          const uniquePlansMap = new Map();
+          machinePlans.forEach(p => { 
+            const sku = p[9] ? p[9].toString().trim() : "";
+            if (!sku || sku === "NA" || sku.startsWith("【|】")) return;
+            if (!uniquePlansMap.has(sku)) uniquePlansMap.set(sku, p); 
+          });
+          const uniquePlans = Array.from(uniquePlansMap.values());
+          
+          if (uniquePlans.length === 1) {
+            selectTaskAndHighlight(mainMachine, uniquePlans, $mainCell);
+          } else if (uniquePlans.length > 1) {
+            $mainCell.click();
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * 弹出迷你计划拾取器（按日期班次SKU去重 + 显示前后3个班次 + 剩余量徽章）
+   * @param {string} machine - 机台号
+   * @param {jQuery} $cellDom - 单元格 DOM 元素
+   * @param {Array} allPlans - 全部计划数据
+   */
+  function showPlanPicker(machine, $cellDom, allPlans) {
+    // 1. 找出该机台所有的计划
+    const rawMachinePlans = allPlans.filter(p => p[4] && p[4].toString().substring(0, 8) === machine);
+    if (rawMachinePlans.length === 0) return;
+
+    // ==========================================
+    // 【计算当前班次坐标】
+    // ==========================================
+    let now = new Date();
+    let nowHM = dayjs(now).format("HH:mm");
+    let tDate = dayjs(now).format("YYYY-MM-DD");
+    let nDate = dayjs(now.getTime() + 86400000).format("YYYY-MM-DD");
+    let cShift = "";
+    let cDate = tDate;
+    
+    // 动态判断当前所处的逻辑班次
+    if (nowHM > "23:44" && nowHM <= "23:59") { 
+      cShift = "夜"; cDate = nDate; 
+    } else if (nowHM >= "00:00" && nowHM < "07:45") { 
+      cShift = "夜"; cDate = tDate; 
+    } else if (nowHM >= "07:45" && nowHM < "15:45") { 
+      cShift = "早"; cDate = tDate; 
+    } else { 
+      cShift = "中"; cDate = tDate;
+    }
+
+    /**
+     * 将日期班次转化为“绝对线性坐标”，方便计算相差了几个班
+     */
+    function getAbsShift(dStr, sStr) {
+      if (!dStr || !sStr) return -99999;
+      let days = dayjs(dStr).diff(dayjs("2020-01-01"), 'day');
+      let sVal = { "夜": 1, "早": 2, "中": 3 }[sStr] || 0;
+      return days * 3 + sVal;
+    }
+    
+    let currentAbs = getAbsShift(cDate, cShift);
+
+    // 2. 按 “日期 + 班次 + SKU” 提取并去重计划
+    const uniquePlansMap = new Map();
+    rawMachinePlans.forEach(p => {
+      const sku = p[9] ? p[9].toString().trim() : "";
+      if (!sku || sku === "NA" || sku.startsWith("【|】")) return;
+
+      let pDate = dayjs(p[2]).format("YYYY-MM-DD");
+      let pShift = p[3];
+      let planAbs = getAbsShift(pDate, pShift);
+      let diff = planAbs - currentAbs;
+
+      // 【关键过滤】：只保留前后 3 个班次以内的计划
+      if (Math.abs(diff) <= 3) {
+        let uniqueKey = `${pDate}_${pShift}_${sku}`;
+        if (!uniquePlansMap.has(uniqueKey)) {
+          p._planAbs = planAbs;
+          p._diff = diff;
+          p._pDate = pDate;
+          p._pShift = pShift;
+          uniquePlansMap.set(uniqueKey, p);
+        }
+      }
+    });
+    
+    let machinePlans = Array.from(uniquePlansMap.values());
+
+    // 按照时间顺序（班次坐标）从小到大排序，方便查看趋势
+    machinePlans.sort((a, b) => a._planAbs - b._planAbs);
+    
+    // 【防呆兜底】：如果过滤后全空了，强制找出绝对距离最近的1个
+    if (machinePlans.length === 0) {
+       let allValid = [];
+       rawMachinePlans.forEach(p => {
+          const sku = p[9] ? p[9].toString().trim() : "";
+          if (!sku || sku === "NA" || sku.startsWith("【|】")) return;
+          let pDate = dayjs(p[2]).format("YYYY-MM-DD");
+          let pShift = p[3];
+          p._planAbs = getAbsShift(pDate, pShift);
+          p._diff = p._planAbs - currentAbs;
+          p._pDate = pDate;
+          p._pShift = pShift;
+          allValid.push(p);
+       });
+       if (allValid.length > 0) {
+          allValid.sort((a, b) => Math.abs(a._diff) - Math.abs(b._diff));
+          machinePlans.push(allValid[0]);
+       } else {
+          return; // 真没数据
+       }
+    }
+
+    // 3. 如果这台机器只有1条可用计划，直接静默选中，不弹窗！
+    if (machinePlans.length === 1) {
+      selectTaskAndHighlight(machine, [machinePlans[0]], $cellDom);
+      return;
+    }
+
+    // 4. 构建带有高颜值徽章的多选 HTML 列表 (Checkbox)
+    let customHtml = `
+      <style>
+        @keyframes dangerBlink {
+          0%, 100% { color: #dc3545; text-shadow: 0 0 8px rgba(220,53,69,0.6); opacity: 1; }
+          50% { color: #ff6b6b; text-shadow: none; opacity: 0.4; }
+        }
+        .danger-blink {
+          animation: dangerBlink 1.2s ease-in-out infinite; font-weight: 900;
+        }
+      </style>
+      <div id="plan-scroll-box" class="text-left" style="position: relative; max-height: 45vh; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 10px 20px;">
+    `;
+    
+    machinePlans.forEach((p, index) => {
+      let isCurrent = (p._diff === 0);
+      let badgeColor = isCurrent ? '#28a745' : '#6c757d'; 
+      let displayDateShift = `${dayjs(p._pDate).format("MM-DD")} ${p._pShift}班`;
+      let leftQty = p[15] || 0; 
+      let shiftKey = `${p._pDate}_${p._pShift}`; 
+
+      let badgeHtml = `<span class="badge" style="margin-left:10px; font-size:0.8em; background-color:${badgeColor}; color:white; padding:4px 8px; border-radius:4px; vertical-align:text-bottom;">${displayDateShift} | 剩余: ${leftQty}</span>`;
+      
+      if (isCurrent) {
+         badgeHtml += `<span class="badge" style="margin-left:4px; font-size:0.7em; background-color:#dc3545; color:white; padding:2px 4px; border-radius:4px; vertical-align:text-bottom;">当前</span>`;
+      }
+
+      let mainTitle = `SKU: <b style="font-size: 1.1em;">${p[9]}</b> ${badgeHtml}`;
+      let subTitle = `<br><small class="text-muted" style="margin-left: 5px;">${p[7]}</small>`;
+      
+      customHtml += `
+        <div class="custom-control custom-checkbox mb-3" style="border-bottom: 1px solid #f0f0f0; padding-bottom: 12px; transition: background-color 0.5s;">
+          <input type="checkbox" id="planCheck_${index}" name="customPlanCheckbox" class="custom-control-input plan-checkbox" value="${index}" data-shiftkey="${shiftKey}">
+          <label class="custom-control-label" for="planCheck_${index}" style="cursor: pointer; width: 100%; line-height: 1.5; margin-top: 2px;">
+            ${mainTitle} ${subTitle}
+          </label>
+        </div>
+      `;
+    });
+    customHtml += '</div>';
+
+    Swal.fire({
+      width: '80vw',
+      title: `请选择 ${machine} 实际生产的产品<br><span style="font-size: 0.75em; color: #6c757d;">(可多选，<span class="danger-blink">不可漏选！</span>)</span>`,
+      html: customHtml,
+      showCancelButton: true,
+      confirmButtonText: '确认添加',
+      cancelButtonText: '取消',
+      didOpen: () => {
+        // ==========================================
+        // 【终极修复 iPad & PC 滚动卡死】：阻止事件冒泡到外层遮罩
+        // ==========================================
+        let scrollBox = document.getElementById('plan-scroll-box');
+        if (scrollBox) {
+          scrollBox.addEventListener('touchmove', function(e) { e.stopPropagation(); }, { passive: false });
+          scrollBox.addEventListener('wheel', function(e) { e.stopPropagation(); }, { passive: false });
+          scrollBox.addEventListener('mousewheel', function(e) { e.stopPropagation(); }, { passive: false });
+          scrollBox.addEventListener('DOMMouseScroll', function(e) { e.stopPropagation(); }, { passive: false });
+        }
+
+        // ==========================================
+        // 【同班次“软联动”勾选】
+        // ==========================================
+        $(".plan-checkbox").on("change", function(e) {
+          if (e.originalEvent) { 
+            let isChecked = $(this).is(":checked");
+            let shiftKey = $(this).data("shiftkey");
+            
+            if (isChecked) {
+              let $uncheckeds = $(`.plan-checkbox[data-shiftkey='${shiftKey}']`).not(this).not(":checked");
+              if ($uncheckeds.length > 0) {
+                $uncheckeds.prop("checked", true);
+                $uncheckeds.closest(".custom-checkbox").css("background-color", "#e8f0fe");
+                setTimeout(() => {
+                  $uncheckeds.closest(".custom-checkbox").css("background-color", "transparent");
+                }, 600);
+              }
+            }
+          }
+        });
+      },
+      preConfirm: () => {
+        let selectedIndices = [];
+        $("input[name='customPlanCheckbox']:checked").each(function() {
+          selectedIndices.push($(this).val());
+        });
+        if (selectedIndices.length === 0) {
+          Swal.showValidationMessage('请至少选择一项正在生产的SKU！');
+          return false;
+        }
+        return selectedIndices;
+      }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        const selectedPlans = result.value.map(idx => machinePlans[idx]);
+        selectTaskAndHighlight(machine, selectedPlans, $cellDom);
+      }
+    });
+  }
+
+  /**
+   * 确认任务并高亮单元格（带双重去重拦截）
+   * @param {string} machine - 机台号
+   * @param {Array} selectedPlansArray - 选中的排产计划
+   * @param {jQuery} $cellDom - 单元格 DOM
+   */
+  function selectTaskAndHighlight(machine, selectedPlansArray, $cellDom) {
+    // 辅助函数：根据机台判定拌料类型
+    function getMoldTypeByMachine(mac) {
+      if ((mac.indexOf("FCS") !== -1 || mac.indexOf("E0E") !== -1) && mac !== "E0EN0009") return "自动模(自动拌料)";
+      if ((mac.indexOf("FCS") !== -1 || mac.indexOf("E0E") !== -1) && mac === "E0EN0009") return "分步模(手工拌料)";
+      if (mac.indexOf("H1HTA851") !== -1) return "分步模(自动拌料)";
+      return "分步模(手工拌料)";
+    }
+
+    // 用于本次提交的 SKU 去重
+    let seenSkus = new Set();
+    
+    selectedPlansArray.forEach(plan => {
+      let sku = plan[9] ? plan[9].toString().trim() : "";
+      
+      // 防呆 1：如果本次提交已经包含过这个 SKU，跳过
+      if (seenSkus.has(sku)) return;
+      seenSkus.add(sku);
+
+      // 防呆 2：如果全局自检队列中，已经存在这个组合，跳过
+      let isExistInQueue = window.tempCheckQueue.some(t => t.machine === machine && t.sku === sku);
+      if (isExistInQueue) return;
+
+      // 解析隐藏信息
+      let col11Str = plan[11] || "";
+      let col11Parts = col11Str.split("【|】");
+      let defect = col11Parts[1] || "";
+      let shiftModel = col11Parts[3] || "";
+      let pointCheck = col11Parts[4] || "";
+
+      // 产品名称中包含 360，追加固定缺陷
+      if (plan[7] && plan[7].toString().indexOf("360") !== -1) {
+        defect = "舌苔平不可接受；" + defect;
+      }
+
+      // 推入全局队列
+      window.tempCheckQueue.push({
+        machine: machine,
+        sku: sku,
+        psku: plan[10] || "",
+        moldModel: plan[8] ? plan[8].toString().substring(0, 8) : "",
+        moldCell: plan[8] ? plan[8].toString().split("-")[1] : "",
+        machineModel: plan[12] || "",
+        machineType: machine.substring(2, 4),
+        moldType: getMoldTypeByMachine(machine),
+        selfCheckDefect: defect,
+        pointCheckInfo: pointCheck,
+        shiftModel: shiftModel
+      });
+    });
+    
+    // UI 高亮处理
+    $cellDom.removeClass("bg-primary").addClass("bg-success font-weight-bold cell-selected");
+    $cellDom.css("box-shadow", "inset 0 0 5px rgba(0,0,0,0.5)");
+    updateTaskCount();
+  }
+
+  /**
+   * 更新底部任务的数字角标
+   */
+  function updateTaskCount() {
+    $("#selectedTaskCount").text("已选任务: " + window.tempCheckQueue.length);
+  }
+
+  // ==========================================
+  // 【新增交互】：机台地图中的“一键清空”功能
+  // ==========================================
+  $("#btnClearSelected").off("click").on("click", function() {
+    // 1. 如果队列本来就是空的，不执行任何操作
+    if (!window.tempCheckQueue || window.tempCheckQueue.length === 0) return;
+    
+    // 2. 清空底层的任务缓存队列
+    window.tempCheckQueue = [];
+    
+    // 3. 剥夺所有已被选中机台的绿色高亮状态，恢复成默认蓝色
+    $("#layoutContainer .cell-selected").each(function() {
+       $(this).removeClass("bg-success font-weight-bold cell-selected").addClass("bg-primary");
+       $(this).css("box-shadow", "none");
+    });
+    
+    // 4. 刷新左下角的角标计数器 UI
+    updateTaskCount();
+  });
+
+  /**
+   * 确认并跳转（附带交接班提前防呆拦截）
+   */
+  $("#btnConfirmMultiCheck").off("click").on("click", async function() {
+    
+    // 【交接班专属】：在进入页面前，提前拦截当班已做过交接班的机台
+    if (window.currentActionType === "HandOver") {
+       let arrInjAllHandOverRecord = await idbGet('sSArrInjAllHandOverRecord') || [];
+       let alreadyDone = [];
+       let validTasks = [];
+       
+       for (let task of window.tempCheckQueue) {
+          let m = task.machine.split(",")[0].substring(0, 8);
+          // 检查记录
+          let isDone = arrInjAllHandOverRecord.some(v => v[0] == m);
+          if (isDone) {
+             alreadyDone.push(m);
+          } else {
+             validTasks.push(task);
+          }
+       }
+
+       if (alreadyDone.length > 0) {
+          await Swal.fire({
+             icon: 'warning',
+             title: '拦截提示',
+             html: `以下机台当班已做过交接班：<br><b style="color:red; font-size:1.2em;">${alreadyDone.join(", ")}</b><br><br>系统已自动将其剔除。`
+          });
+       }
+       
+       if (validTasks.length === 0) {
+          return; // 全做过了直接返回
+       }
+       
+       sessionStorage.setItem("multiTaskQueue", JSON.stringify(validTasks));
+       window.open(execUrl + "?v=HandOverCheck");
+       $("#modalLayoutPicker").modal("hide");
+       return;
+    }
+
+    // 其他逻辑 (自检/首件) 跳转
+    sessionStorage.setItem("multiTaskQueue", JSON.stringify(window.tempCheckQueue));
+    
+    if (window.currentActionType === "FirstCheck") {
+        window.open(execUrl + "?v=FirstCheck");
+    } else if (window.currentActionType === "TechFirstCheck") {
+        // 【新增】：设备首件路由
+        window.open(execUrl + "?v=TechFirstCheck");
+    } else {
+        // 【新增】：如果是自检，将本次的选择和当前逻辑班次烙印到本地缓存中！
+        if (window.currentActionType === "SelfCheck") {
+            let cacheData = {
+                shiftKey: getCurrentLogicalShift(),
+                tasks: window.tempCheckQueue
+            };
+            localStorage.setItem("lastSelfCheckCache", JSON.stringify(cacheData));
+        }
+        window.open(execUrl + "?v=SelfCheck");
+    }
+    $("#modalLayoutPicker").modal("hide");
+  });
+
+  /*============点击【插入计划】按钮后弹出检查类别============*/
+  $("#btnInsertPlan").on("click", function() {
+    let teamCheckTypeRow = $("#teamCheckTypeRow").val();
+    insertPlan(teamCheckTypeRow);
+    $("#modalTeamCheckType").modal("hide");
+  });
+
+  /*============点击【末模记录】按钮后弹出检查类别============*/
+  $("#btnFinalMoldCollection").on("click", function() {
+    let teamCheckTypeRow = $("#teamCheckTypeRow").val();
+    finalMoldCollection(teamCheckTypeRow);
+    $("#modalTeamCheckType").modal("hide");
+  });
+
+  /**
+   * 插入计划页面跳转
+   * @param {Number} trSeq - 行号
+   */
+  function insertPlan(trSeq) {
+    let tbody = $("#tbodydisplay");
+    let machine = tbody.find("tr").eq(trSeq).find("td").eq(4).text();
+    let moldType = tbody.find("tr").eq(trSeq).find("td").eq(8).text();
+    let out = tbody.find("tr").eq(trSeq).find("td").eq(16).text();
+    
+    sessionStorage.setItem("insertPlanMachine", machine);
+    sessionStorage.setItem("insertPlanMoldType", moldType);
+    sessionStorage.setItem("insertPlanOut", out);
+    
+    let workshop = "";
+    if (machine.charAt(1) == 0 || machine.charAt(1) == 1) { workshop = "TB1"; } 
+    else if (machine.charAt(1) == 2) { workshop = "TB2"; }
+    sessionStorage.setItem("insertPlanDep", workshop);
+    
+    if (machine.toString().substring(2, 4) != "FT") {
+      window.open(execUrl + "?v=InsertPlan");
+    } else {
+      Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: "请选择对应大机进行插入", showConfirmButton: true });
+    }
+  }
+  
+  /**
+   * 末模记录页面跳转
+   * @param {Number} trSeq - 行号
+   */
+  function finalMoldCollection(trSeq) {
+    let tbody = $("#tbodydisplay");
+    let machine = tbody.find("tr").eq(trSeq).find("td").eq(4).text();
+    let sku = tbody.find("tr").eq(trSeq).find("td").eq(9).text();
+    let des = tbody.find("tr").eq(trSeq).find("td").eq(7).text();
+    let moldModelTemp = tbody.find("tr").eq(trSeq).find("td").eq(8).text();
+    let moldModel = moldModelTemp.substr(0, 8);
+    
+    sessionStorage.setItem("finalMoldCollectionMachine", machine);
+    sessionStorage.setItem("finalMoldCollectionMoldModel", moldModel);
+    sessionStorage.setItem("finalMoldCollectionSku", sku);
+    sessionStorage.setItem("finalMoldCollectionDes", des);
+    window.open(execUrl + "?v=FinalMoldCollection");
+  }
+  
+  /**
+   * 【设备】按钮点击事件
+   * @param {HTMLElement} obj - 按钮 DOM
+   */
+  function equipmentCheck(obj) {
+    let trSeq = $(obj).closest("tr").index();
+    let PoStatus = $("#tbodydisplay").find("tr").eq(trSeq).find("td").eq(7).text();
+    
+    if (PoStatus == "仅供设备周检用") {
+      $("#btnTechViewPara").prop("disabled", true);
+      $("#btnTechFirstCheck").prop("disabled", true);
+    } else {
+      // 恢复按钮可用状态，防止残留
+      $("#btnTechViewPara").prop("disabled", false);
+      $("#btnTechFirstCheck").prop("disabled", false);
+    }
+    
+    $("#techCheckTypeRow").val(trSeq);
+    $("#modalTechCheckType").modal("show");
+  }
+  
+  /*============点击【查询工艺参数】按钮后弹出检查类别============*/
+  $("#btnTechViewPara").on("click", function() {
+    let techCheckTypeRow = $("#techCheckTypeRow").val();
+    techViewPara(techCheckTypeRow);
+    $("#modalTechCheckType").modal("hide");
+  });
+
+  /*============点击【设备首件确认】按钮后弹出检查类别============*/
+  /*============点击【设备首件确认】按钮后触发地图============*/
+  $("#btnTechFirstCheck").off("click").on("click", function() {
+    let techCheckTypeRow = $("#techCheckTypeRow").val();
+    let tbody = $("#tbodydisplay");
+    // 提取当前点击行的主控机台
+    let mainMachine = tbody.find("tr").eq(techCheckTypeRow).find("td").eq(4).text().substring(0, 8);
+    
+    // 【关键】：清空队列，并设定全局标志位，告诉地图这是“设备首件”
+    window.tempCheckQueue = []; 
+    window.currentActionType = "TechFirstCheck"; 
+    
+    openLayoutPicker(mainMachine);
+    $("#modalTechCheckType").modal("hide");
+  });
+
+  /*============点击【设备参数周检】按钮后直接跳转专属页面============*/
+  $("#btnTechPpmsWeekCheck").off("click").on("click", function() {
+    let techCheckTypeRow = $("#techCheckTypeRow").val();
+    let tbody = $("#tbodydisplay");
+    // 提取当前机台，仅仅是为了判断它是 TB1 还是 TB2
+    let mainMachine = tbody.find("tr").eq(techCheckTypeRow).find("td").eq(4).text().substring(0, 8);
+    
+    let workshop = "TB1";
+    if (mainMachine.charAt(1) === '2') {
+      workshop = "TB2";
+    }
+    
+    // 复用传参变量给专属页面，通知它去拉取哪个车间的地图
+    sessionStorage.setItem("PpmsMonthCheckWs", workshop); 
+    window.open(execUrl + "?v=TechPpmsWeekCheck");
+    
+    $("#modalTechCheckType").modal("hide");
+  });
+
+  /**
+   * 查询设备参数
+   * @param {Number} trSeq - 行号
+   */
+  function techViewPara(trSeq) {
+    let tbody = $("#tbodydisplay");
+    let machine = tbody.find("tr").eq(trSeq).find("td").eq(4).text();
+    let sku = tbody.find("tr").eq(trSeq).find("td").eq(9).text();
+    let psku = tbody.find("tr").eq(trSeq).find("td").eq(10).text();
+    let machineModel = tbody.find("tr").eq(trSeq).find("td").eq(12).text();
+    let moldModelTemp = tbody.find("tr").eq(trSeq).find("td").eq(8).text();
+    let moldModel = moldModelTemp.substr(0, 8);
+    let machineType = machine.substr(2, 2);
+    
+    sessionStorage.setItem("techViewParaMachine", machine);
+    sessionStorage.setItem("techViewParaSku", sku);
+    sessionStorage.setItem("techViewParaBomPsku", psku);
+    sessionStorage.setItem("techViewParaMoldModel", moldModel);
+    sessionStorage.setItem("techViewParaMachineModel", machineModel);
+    sessionStorage.setItem("techViewParaMachineType", machineType);
+    window.open(execUrl + "?v=TechViewPara");
+  }
+  
+  /**
+   * 设备首件确认
+   * @param {Number} trSeq - 行号
+   */
+  function techFirstCheck(trSeq) {
+    let tbody = $("#tbodydisplay");
+    let machine = tbody.find("tr").eq(trSeq).find("td").eq(4).text();
+    let sku = tbody.find("tr").eq(trSeq).find("td").eq(9).text();
+    let psku = tbody.find("tr").eq(trSeq).find("td").eq(10).text();
+    let machineModel = tbody.find("tr").eq(trSeq).find("td").eq(12).text();
+    let moldModelTemp = tbody.find("tr").eq(trSeq).find("td").eq(8).text();
+    let moldModel = moldModelTemp.substr(0, 8);
+    
+    let now = new Date();
+    let nowTime = dayjs(now).format("YYYY-MM-DD HH:mm:ss");
+    let nowDate = dayjs(now).format("YYYY-MM-DD");
+    let nextDate = dayjs(new Date(now.getTime() + 24 * 3600 * 1000)).format("YYYY-MM-DD");
+    let nowHourMinute = dayjs(now).format("HH:mm");
+    
+    let shift = 0;
+    let nowDateShift = "";
+    if (nowHourMinute > "23:44" && nowHourMinute < "24:00") { shift = 1; nowDateShift = nextDate + "_" + shift; } 
+    else if (nowHourMinute >= "00:00" && nowHourMinute < "07:45") { shift = 1; nowDateShift = nowDate + "_" + shift; } 
+    else if (nowHourMinute > "07:44" && nowHourMinute < "15:45") { shift = 2; nowDateShift = nowDate + "_" + shift; } 
+    else if (nowHourMinute > "15:44" && nowHourMinute < "23:45") { shift = 3; nowDateShift = nowDate + "_" + shift; }
+    
+    Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在检测数据……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>' });
+    google.script.run.withSuccessHandler(htmlCheckWriteTechFirstConfirm).checkWriteTechFirstConfirm(nowDateShift, sku, machine);
+    
+    function htmlCheckWriteTechFirstConfirm(result) {
+      if (result[0] == "OK") {
+        sessionStorage.setItem("techFirstCheckMachine", machine);
+        sessionStorage.setItem("techFirstCheckSku", sku);
+        sessionStorage.setItem("techFirstCheckBomPsku", psku);
+        sessionStorage.setItem("techFirstCheckMoldModel", moldModel);
+        sessionStorage.setItem("techFirstCheckMachineModel", machineModel);
+        
+        if (machine.match("FCS") || machine.match("E0E")) {
+          sessionStorage.setItem("techFirstCheckBomMoldType", "Y");
+        } else {
+          sessionStorage.setItem("techFirstCheckBomMoldType", "N");
+        }
+        
+        let workshop = "";
+        if (machine.charAt(1) == 0 || machine.charAt(1) == 1) { workshop = "TB1"; } 
+        else if (machine.charAt(1) == 2) { workshop = "TB2"; }
+        sessionStorage.setItem("techFirstCheckDep", workshop);
+        
+        let machineType = machine.substr(2, 2);
+        sessionStorage.setItem("techFirstCheckMachineType", machineType);
+        
+        Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "进入设备首件确认页面中……", showConfirmButton: false, timer: 1500 });
+        window.open(execUrl + "?v=TechFirstCheck");
+      } else {
+        Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: result[1], showConfirmButton: true });
+      }
+    }
+  }
+
+  /*==================单击表格单元格事件总控==================*/
+  $("#tbodydisplay").on('click', 'td', async function() {
+    let tbody = $("#tbodydisplay");
+    let tdSeq = $(this).index(); // 所在列
+    let trSeq = $(this).parent().index(); // 所在行
+    
+    if (tdSeq == 1) {
+      let tdPO = $(this).html();
+      let machine = tbody.find("tr").eq(trSeq).find("td").eq(4).text();
+      let handleSku = tbody.find("tr").eq(trSeq).find("td").eq(9).text();
+      let tdDes = tbody.find("tr").eq(trSeq).find("td").eq(7).text();
+      let poInfo = tbody.find("tr").eq(trSeq).find("td").eq(11).text().split("【|】")[5];
+      let lastOrderInfo = tbody.find("tr").eq(trSeq).find("td").eq(11).text().split("【|】")[6];
+      
+      if (tdPO != "") {
+        showPOQRCode(tdPO, tdDes, handleSku, machine, poInfo, lastOrderInfo);
+      } else {
+        Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: '没有PO', showConfirmButton: false, timer: 1500 });
+      }
+    }
+    
+    if (tdSeq == 6) {
+      let tdVal = $(this).text();
+      let tdProductName = tbody.find("tr").eq(trSeq).find("td").eq(8).text();
+      let tdDes = tbody.find("tr").eq(trSeq).find("td").eq(8).text();
+      let tdBoxNum = tbody.find("tr").eq(trSeq).find("td").eq(11).text();
+      let tdOut = tbody.find("tr").eq(trSeq).find("td").eq(16).text();
+      let tdShiftOut = tbody.find("tr").eq(trSeq).find("td").eq(14).text();
+      let handleSku = tbody.find("tr").eq(trSeq).find("td").eq(10).text();
+      let tdPo = tbody.find("tr").eq(trSeq).find("td").eq(1).html();
+      
+      let htmlTxt = "";
+      let fixedDefects = "";
+      if (tdProductName.indexOf("360") != -1) { fixedDefects = "舌苔平不可接受；"; }
+      
+      if (tdPo != "") {
+        htmlTxt = "<p style='color:green'>模具：" + tdDes + "</p>" +
+                  "<p style='color:red'>箱含量：" + tdBoxNum.toString().split("【|】")[0] + "</p>" +
+                  "<p style='color:red'><marquee direction='right' scrollamount='5' behavior='alternate'>常见缺陷：<i><u>" + fixedDefects + tdBoxNum.toString().split("【|】")[1] + "</u></i></marquee></p>" +
+                  "<p style='color:blue'>计划量：" + tdOut + "</p>" +
+                  "<p style='color:magenta'>三班班产：<i><u>" + tdShiftOut + "</u></i></p>";
+      } else {
+        htmlTxt = "<p style='color:green'>模具：" + tdDes + "</p>" +
+                  "<p style='color:red'>箱含量：" + tdBoxNum.toString().split("【|】")[0] + "</p>" +
+                  "<p style='color:red'><marquee direction='right' scrollamount='5' behavior='alternate'>常见缺陷：<i><u>" + fixedDefects + tdBoxNum.toString().split("【|】")[1] + "</u></i></marquee></p>" +
+                  "<p style='color:blue'>计划量：" + tdOut + "</p>" +
+                  "<p style='color:magenta'>三班班产：<i><u>详细请点击相应成品SKU</u></i></p>";
+      }
+      Swal.fire({ type: 'info', title: tdVal + "【" + handleSku + "】", html: htmlTxt, showConfirmButton: true });
+    }
+    
+    if (tdSeq == 4) {
+      let tdMachine = tbody.find("tr").eq(trSeq).find("td").eq(4).text();
+      $("#modalViewMachine").val(tdMachine);
+      $("#modalViewPlan").modal("show");
+    }
+    
+    if (tdSeq == 8) {
+      let tdInitialPoInfo = tbody.find("tr").eq(trSeq).find("td").eq(19).text();
+      let tdHistoryPoInfo = tbody.find("tr").eq(trSeq).find("td").eq(20).text();
+      
+      await Swal.fire({
+        width: '60%',
+        title: '确定还原PO初始信息',
+        html: '若PO信息混乱，可点还原将PO还原成原始状态',
+        focusConfirm: true,
+        showCancelButton: true,
+        showDenyButton: false,
+        confirmButtonColor: '#3085d6',
+        denyButtonColor: '#d33',
+        cancelButtonColor: '#b8b8b8',
+        confirmButtonText: '还原',
+        denyButtonText: '清除',
+        cancelButtonText: '返回'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          tbody.find("tr").eq(trSeq).find("td").eq(17).text(tdInitialPoInfo);
+          tbody.find("tr").eq(trSeq).find("td").eq(15).text(tbody.find("tr").eq(trSeq).find("td").eq(16).text());
+          tbody.find("tr").eq(trSeq).find("td").eq(15).css({"background": "white"});
+          tbody.find("tr").eq(trSeq).find("td").eq(20).text(JSON.stringify([["还原时间", "", "", "", dayjs().format("YYYY-MM-DD HH:mm:ss"), "", ""]].concat(JSON.parse(tdInitialPoInfo)).concat(JSON.parse(tdHistoryPoInfo))));
+        }
+      });
+    }
+    
+    if (tdSeq == 16) {
+      let tdMachine = tbody.find("tr").eq(trSeq).find("td").eq(4).text();
+      let tdSku = tbody.find("tr").eq(trSeq).find("td").eq(9).text();
+      let arrTemp = arrDirectDeliveryOutTimeInfo.filter(v => v[0] + v[1] == tdMachine + tdSku);
+      
+      if (arrTemp.length > 0) {
+        $("#ctMachine").val(tdMachine);
+        $("#ctSku").val(tdSku);
+        $("#ctMachine").selectpicker('refresh');
+        $("#ctSku").selectpicker('refresh');
+        $("#ctStandardOut").val(arrTemp[0][2]);
+        $("#ctStandardTime").val(arrTemp[0][3]);
+        $("#ctActOut").val("");
+        $("#ctActTime").val("");
+        $("#showModalCalcTime").animate({ height: "show" }, 1000);
+        $("#modalOuter").show();
+      } else {
+        Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: '非直配机台和品种', showConfirmButton: false, timer: 1500 });
+      }
+    }
+    
+    if (tdSeq == 15) {
+      let tdObj = $(this).next().next();
+      let tdVal = tdObj.text();
+      let tdNextVal = tdObj.next().next().next().text();
+      let tdPrev2Val = tdObj.prev().prev().text();
+      let rowNo = tbody.find("tr").eq(trSeq).find("td").eq(0).text();
+      let strPo = tbody.find("tr").eq(trSeq).find("td").eq(1).text();
+      let boxContent = Number(tbody.find("tr").eq(trSeq).find("td").eq(11).text().split("【|】")[0].toString().split(/[^\d]/).filter(v => v != "")[0]);
+      
+      if (!boxContent) { boxContent = 0; }
+      
+      if (strPo.toString().length > 5 && tdObj.text() != "") {
+        let arrTemp = [["PO", "计划量", "已完成", "剩余量", "当班产出", "手包？", "最后一单？", "箱含量", "生产建议"]];
+        let arrHistoryTemp = [["PO修改<br>历史信息", "计划量", "已完成", "剩余量", "修改时间<br>当班产出", "手包？", "最后一单？"]];
+        let arrTheadTemp = [];
+        let arrTbodyTemp = [];
+        let arrHistoryPoTemp = [];
+        let arrTbodyHistoryPo = [];
+        
+        arrTemp = arrTemp.concat(JSON.parse(tdVal));
+        let trBackground = "unset";
+        let tdInputBackground = "lightcyan";
+        
+        for (let n = 0; n < arrTemp.length; n++) {
+          trBackground = "unset";
+          tdInputBackground = "lightcyan";
+          if (n == 0) {
+            arrTheadTemp.push('<tr><th>' + arrTemp[n][0] + '</th><th>' + arrTemp[n][1] + '</th><th>' + arrTemp[n][2] + '</th><th>' + arrTemp[n][3] + '</th><th>' + arrTemp[n][4] + '</th><th>' + arrTemp[n][5] + '</th><th>' + arrTemp[n][6] + '</th><th>' + arrTemp[n][7] + '</th><th>' + arrTemp[n][8] + '</th></tr>');
+          } else {
+            let prodRemark = arrTemp[n][3] + "支";
+            if (boxContent) {
+              let prodInteger = Math.floor(Number(arrTemp[n][3]) / boxContent);
+              let prodRemainder = Number(arrTemp[n][3]) - prodInteger * boxContent;
+              prodRemark = prodInteger + "箱＋" + prodRemainder + "零头";
+            }
+            if (Number(arrTemp[n][1]) <= Number(arrTemp[n][2])) {
+              trBackground = "#B8B8B8";
+              tdInputBackground = "#B8B8B8";
+            }
+            arrTbodyTemp.push('<tr style="height:40px;background:' + trBackground + '"><td style="font-size:small" onclick="showSwalPo(this,' + trSeq + ')">' + arrTemp[n][0] + '</td><td style="font-size:small">' + arrTemp[n][1] + '</td><td style="font-size:small">' + arrTemp[n][2] + '</td><td style="font-size:small">' + arrTemp[n][3] + '</td><td style="background:' + tdInputBackground + '"><input oninput="calcPoInfo(this,' + Number(arrTemp[n][2]) + ')" type="number" style="background:unset;font-size:small;width:100%;height:100%;border:0;outline:0;text-align:center" value=""></td><td style="font-size:small">' + arrTemp[n][5] + '</td><td style="font-size:small;color:red;font-weight:bold">' + arrTemp[n][6] + '</td><td><input oninput="calcProdInfo(this,' + Number(arrTemp[n][3]) + ')" type="number" style="background:unset;font-size:small;width:100%;height:100%;border:0;outline:0;text-align:center" value="' + boxContent + '"></td><td style="font-size:small">' + prodRemark + '</td></tr>');
+          }
+        }
+        
+        arrHistoryPoTemp = arrHistoryTemp.concat(JSON.parse(tdNextVal));
+        for (let n = 0; n < arrHistoryPoTemp.length; n++) {
+          let trHistoryBackground = "";
+          if (arrHistoryPoTemp[n][1] == "") {
+            trHistoryBackground = ' style="background:lightcyan"';
+          }
+          arrTbodyHistoryPo.push('<tr' + trHistoryBackground + '><td>' + arrHistoryPoTemp[n][0] + '</td><td>' + arrHistoryPoTemp[n][1] + '</td><td>' + arrHistoryPoTemp[n][2] + '</td><td>' + arrHistoryPoTemp[n][3] + '</td><td>' + arrHistoryPoTemp[n][4] + '</td><td>' + arrHistoryPoTemp[n][5] + '</td><td style="font-size:small;color:red;font-weight:bold">' + arrHistoryPoTemp[n][6] + '</td></tr>');
+        }
+        
+        let html_text = '<div>' +
+                          '<span>行：' + rowNo + '；计划量：<b id="skuTotalPlanNum" style="color:blue">' + tdObj.prev().text() + '</b>；剩余量：<b id="skuTotalLeftNum" style="color:red">' + tdPrev2Val + '</b></span>' +
+                        '</div>' +
+                        '<div>' +
+                          '<table border="1" style="width:100%;text-align:center;font-size:small">' +
+                            '<thead>' + arrTheadTemp.join("") + '</thead>' +
+                            '<tbody id="swal-tbody">' + arrTbodyTemp.join("") + '</tbody>' +
+                          '</table>' +
+                        '</div>' +
+                        '<div><p id="swalRemind" style="color:red;font-size:32px"></p></div>';
+                        
+        let html_historyPo = '<div>' +
+                               '<table border="1" style="width:100%;text-align:center;font-size:small">' +
+                                 '<thead></thead>' +
+                                 '<tbody>' + arrTbodyHistoryPo.join("") + '</tbody>' +
+                               '</table>' +
+                             '</div>';
+                             
+        let formValues = [];
+        let arrRowLeftOut = [];
+        
+        await Swal.fire({
+          width: '60%',
+          title: '更新单元格内容',
+          html: html_text,
+          focusConfirm: true,
+          showCancelButton: true,
+          showDenyButton: false,
+          confirmButtonColor: '#3085d6',
+          denyButtonColor: '#d33',
+          cancelButtonColor: '#b8b8b8',
+          confirmButtonText: '更新',
+          denyButtonText: '清除',
+          cancelButtonText: '返回',
+          footer: html_historyPo,
+          preConfirm: () => {
+            let swalTableRows = $("#swal-tbody").find("tr").length;
+            let arrSwalTableData = [];
+            let arrSwalRowLeftOUt = [];
+            
+            for (let i = 0; i < swalTableRows; i++) {
+              arrSwalTableData.push([
+                $("#swal-tbody").find("tr").eq(i).find("td").eq(0).text(),
+                $("#swal-tbody").find("tr").eq(i).find("td").eq(1).text(),
+                $("#swal-tbody").find("tr").eq(i).find("td").eq(2).text(),
+                $("#swal-tbody").find("tr").eq(i).find("td").eq(3).text(),
+                $("#swal-tbody").find("tr").eq(i).find("td").eq(4).find("input").eq(0).val(),
+                $("#swal-tbody").find("tr").eq(i).find("td").eq(5).text(),
+                $("#swal-tbody").find("tr").eq(i).find("td").eq(6).text()
+              ]);
+              arrSwalRowLeftOUt.push([$("#swal-tbody").find("tr").eq(i).find("td").eq(3).text()]);
+            }
+            formValues = arrSwalTableData;
+            arrRowLeftOut = arrSwalRowLeftOUt;
+            return arrSwalTableData;
+          }
+        }).then((result) => {
+          if (result.isConfirmed) {    
+            if (formValues) {
+              let tempTotalOut = 0;
+              let judgePoLeft = 0;
+              for (let i = 0; i < formValues.length; i++) {
+                tempTotalOut = tempTotalOut + Number(formValues[i][2]);
+                if ((i < formValues.length - 1 && formValues[i][3] < 0 && formValues[i + 1][1] == formValues[i + 1][3]) || (i > 0 && formValues[i][4] > 0 && formValues[i - 1][3] > 0)) {
+                  judgePoLeft = judgePoLeft + 1;
+                }
+              }
+              let tempLeftOut = Number(tdObj.prev().text()) - tempTotalOut;
+              let arrRowLeftOutOverZero = arrRowLeftOut.filter(v => v[0] > 0);
+              
+              if (judgePoLeft > 0 || (tempLeftOut <= 0 && arrRowLeftOutOverZero.length > 0)) {
+                Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: "PO必须一个一个清零，不能盯着一个PO", showConfirmButton: true, footer: '<p>PO收货与输入必须同步</p>' });
+              } else {
+                let arrHistoryPoInfo = [["变更时间", "", "", "", dayjs().format("YYYY-MM-DD HH:mm:ss"), "", ""]].concat(formValues).concat(JSON.parse(tdNextVal));
+                Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在保存产出信息……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>' });
+                
+                google.script.run.withSuccessHandler(htmlWriteOutputPcs).writeOutputPcs(rowNo, strPo, tempLeftOut, formValues, arrHistoryPoInfo);
+                
+                function htmlWriteOutputPcs(result) {
+                  if (result[0] == "OK") {
+                    tdObj.text(JSON.stringify(formValues));
+                    tdObj.next().next().next().text(JSON.stringify(arrHistoryPoInfo));
+                    tdObj.prev().prev().text(tempLeftOut);
+                    if (tempLeftOut <= 0) {
+                      tdObj.prev().prev().css({ "background": "#B8B8B8" });
+                    } else {
+                      tdObj.prev().prev().css({ "background": "white" });
+                    }
+                    sessionStorage.setItem("sSAllPlan", JSON.stringify(result[1]));
+                    Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: "产出写入成功", showConfirmButton: true });
+                  } else {
+                    Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: "产出写入失败：" + result[1], showConfirmButton: true });
+                  }
+                }
+              }
+            }  
+          }
+        });
+      } else {
+        Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "无PO或无产出信息！", showConfirmButton: true });
+      }
+    }
+    if (tdSeq == 7) {
+      let tdObj = $(this);
+      let tdVal = tdObj.text();
+      let tdPrev1Val = tdObj.prev().text().replace("手包", "");
+      let tdPrev3Val = tdObj.prev().prev().prev().text();
+      sarmDesPreNo = tdVal;
+      sarmDes = sarmDesPreNo.split("【|】")[0];
+      arrPreNo = sarmDesPreNo.split("【|】")[1].split("|");
+      
+      let now = dayjs();
+      let nowDate = now.format("YYYY-MM-DD");
+      let nowHour = now.format("HH");
+      let nowMinute = now.format("mm");
+      let nowHourMinute = now.format("HH:mm");
+      let nowShift = 0;
+      
+      if (nowHour > 15) { nowShift = 3; } 
+      else if (nowHour > 7) { nowShift = 2; } 
+      else if (nowHour >= 0) { nowShift = 1; }
+      
+      let judgeSA = false, judgeR = false;
+      if ((nowHourMinute >= "00:00" && nowHourMinute < "01:00") || (nowHourMinute >= "08:00" && nowHourMinute < "09:00") || (nowHourMinute >= "16:00" && nowHourMinute < "17:00")) {
+        judgeSA = true; judgeR = true;
+      }
+      if ((nowHourMinute >= "01:00" && nowHourMinute < "07:45") || (nowHourMinute >= "09:00" && nowHourMinute < "15:45") || (nowHourMinute >= "17:00" && nowHourMinute < "23:45")) {
+        judgeSA = false; judgeR = true;
+      }
+      if ((nowHourMinute >= "07:45" && nowHourMinute < "08:00") || (nowHourMinute >= "15:45" && nowHourMinute < "16:00") || (nowHourMinute >= "23:45" && nowHourMinute < "24:00")) {
+        judgeSA = true; judgeR = true;
+      }
+      
+      Swal.fire({
+        icon: 'info',
+        title: '选择操作类别',
+        text: '机台：' + tdPrev3Val + '；SKU：' + tdPrev1Val + '；描述：' + tdVal,
+        focusConfirm: true,
+        showCancelButton: false,
+        showDenyButton: judgeR,
+        showConfirmButton: judgeSA,
+        confirmButtonColor: '#3085d6',
+        denyButtonColor: '#d33',
+        cancelButtonColor: '#b8b8b8',
+        confirmButtonText: '补减',
+        denyButtonText: '退料',
+        cancelButtonText: '返回'
+      }).then((result) => {
+        if (result.isConfirmed) { 
+          Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在分析机台计划及物料数据……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>' });
+          
+          let arrSarmPlanData_Machine_Prev3Next1 = [];
+          let arrWhSarm_Machine_Prev4 = [];
+          let nowDateShift = "";
+          let nowDateTime = "";
+          let nowTime = new Date().getTime();
+          let prevDate = dayjs(new Date(nowTime - 24 * 3600 * 1000)).format("YYYY-MM-DD");
+          let nextDate = dayjs(new Date(nowTime + 24 * 3600 * 1000)).format("YYYY-MM-DD");
+          
+          let arrPrevDateShift = [];
+          
+          if ((nowHour == 7 && nowMinute >= 45) || (nowHour >= 8 && nowHour < 15) || (nowHour == 15 && nowMinute < 45)) { 
+            nowDateShift = nowDate + "_" + 2; nowDateTime = nowDate + " 08:00:00"; 
+          }
+          else if ((nowHour == 15 && nowMinute >= 45) || (nowHour >= 16 && nowHour < 23) || (nowHour == 23 && nowMinute < 45)) { 
+            nowDateShift = nowDate + "_" + 3; nowDateTime = nowDate + " 16:00:00"; 
+          }
+          else if (nowHour == 23 && nowMinute >= 45) { 
+            nowDateShift = nextDate + "_" + 1; nowDateTime = nextDate + " 00:00:00"; 
+          }
+          else if ((nowHour >= 0 && nowHour < 7) || (nowHour == 7 && nowMinute < 45)) { 
+            nowDateShift = nowDate + "_" + 1; nowDateTime = nowDate + " 00:00:00"; 
+          }
+          
+          let prevDateTime = "";
+          let prevDateTime_Date = "";
+          let prevDateTime_Hour = 0;
+          
+          for (let i = 0; i < 5; i++) {
+            prevDateTime = dayjs(new Date(nowDateTime).getTime() - i * 8 * 3600 * 1000).format("YYYY-MM-DD HH:mm:ss");
+            prevDateTime_Date = dayjs(new Date(nowDateTime).getTime() - i * 8 * 3600 * 1000).format("YYYY-MM-DD");
+            prevDateTime_Hour = new Date(prevDateTime).getHours();
+            
+            if (prevDateTime_Hour == 0) { arrPrevDateShift.push(prevDateTime_Date + "_" + 1); } 
+            else if (prevDateTime_Hour == 8) { arrPrevDateShift.push(prevDateTime_Date + "_" + 2); } 
+            else if (prevDateTime_Hour == 16) { arrPrevDateShift.push(prevDateTime_Date + "_" + 3); }
+          }
+          
+          $("#sarmDate").val(nowDate);
+          $("#sarmShift").val(nowShift);
+          $("#sarmMachine").val(tdPrev3Val);
+          $("#sarmSku").val(tdPrev1Val);
+          $("#sarmDes").val(sarmDes);
+          
+          let arrSarmPlanData_Machine = arrSarmPlanData.filter(v => v[4] == $("#sarmMachine").val() && v[16] > 0).map(v => [v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[16]]);
+          if (arrSarmPlanData_Machine.length > 0) {
+            arrSarmPlanData_Machine.forEach(v => {
+              v[0] = dayjs(new Date(v[0])).format("YYYY-MM-DD");
+              if (v[1] == "早") { v.push(v[0] + "_" + 2); } 
+              else if (v[1] == "中") { v.push(v[0] + "_" + 3); } 
+              else if (v[1] == "夜") { v.push(v[0] + "_" + 1); } 
+              else { v.push(v[0] + "_" + 0); }
+            });
+            
+            let arrSarmPlanData_Machine_DateShift = Array.from(new Set(arrSarmPlanData_Machine.map(v => v[10]))).sort((a, b) => { if(a > b) return 1; else if(a == b) return 0; else return -1; });
+            let arrSarmPlanData_Machine_Need_DateShift = [];
+            let arrSarmPlanData_Machine_Prev_DateShift = arrSarmPlanData_Machine_DateShift.filter(v => v < nowDateShift);
+            
+            for (let i = arrSarmPlanData_Machine_Prev_DateShift.length - 1; i > -1; i--) {
+              arrSarmPlanData_Machine_Need_DateShift.push(arrSarmPlanData_Machine_Prev_DateShift[i]);
+              if (arrSarmPlanData_Machine_Need_DateShift.length > 0) { break; }
+            }
+            
+            let arrSarmPlanData_Machine_Next_DateShift = arrSarmPlanData_Machine_DateShift.filter(v => v > nowDateShift);
+            for (let i = 0; i < arrSarmPlanData_Machine_Next_DateShift.length; i++) {
+              arrSarmPlanData_Machine_Need_DateShift.push(arrSarmPlanData_Machine_Next_DateShift[i]);
+              if (arrSarmPlanData_Machine_Need_DateShift.length > 2) { break; }
+            }
+            
+            arrSarmPlanData_Machine_Need_DateShift.push(nowDateShift);
+            arrSarmPlanData_Machine_Prev3Next1 = arrSarmPlanData_Machine.filter(v => arrSarmPlanData_Machine_Need_DateShift.indexOf(v[10]) != -1);
+            arrSarmPlanData_Machine_Prev3Next1.forEach(v => { v.push(v[5].split("【|】")[1]); v[5] = v[5].split("【|】")[0]; });
+            
+            sarmDateShift = nowDateShift;
+            arrMachinePrevNextPlanInfo = arrSarmPlanData_Machine_Prev3Next1;
+            arrMachinePrevSarmInfo = [];
+            arrWhSarm_NowDateShift = [];
+            let strRow = "";
+            $("#sarmDateShift").val(sarmDateShift);
+            $("#sarmStdPreNo").val(arrPreNo.join("|"));
+            $("#tbodyMachinePrevNextPlanInfo").empty();
+            
+            if (arrMachinePrevNextPlanInfo.length > 0) {
+              let trFormat = "";
+              for (let i = 0; i < arrMachinePrevNextPlanInfo.length; i++) {
+                if (arrMachinePrevNextPlanInfo[i][10] == sarmDateShift) { trFormat = " style='background:#B8B8B8'"; } 
+                else { trFormat = ""; }
+                strRow = `<tr` + trFormat + `>
+                        <td>` + arrMachinePrevNextPlanInfo[i][0] + `</td>
+                        <td>` + arrMachinePrevNextPlanInfo[i][1] + `</td>
+                        <td>` + arrMachinePrevNextPlanInfo[i][4] + `</td>
+                        <td>` + arrMachinePrevNextPlanInfo[i][5] + `</td>
+                        <td>` + arrMachinePrevNextPlanInfo[i][9] + `</td>
+                        <td>` + arrMachinePrevNextPlanInfo[i][11] + `</td>
+                      </tr>`;
+                $("#tbodyMachinePrevNextPlanInfo").append(strRow);
+              }
+            }
+            
+            $("#tbodyMachinePrevSarmInfo").empty();
+            if (arrMachinePrevSarmInfo.length > 0) {
+              let trFormat = "";
+              for (let i = 0; i < arrMachinePrevSarmInfo.length; i++) {
+                if (arrMachinePrevSarmInfo[i][15] == sarmDateShift) { trFormat = " style='background:#B8B8B8'"; } 
+                else { trFormat = ""; }
+                strRow = `<tr` + trFormat + `>
+                        <td>` + arrMachinePrevSarmInfo[i][1] + `</td>
+                        <td>` + arrMachinePrevSarmInfo[i][2] + `</td>
+                        <td>` + arrMachinePrevSarmInfo[i][6] + `</td>
+                        <td>` + arrMachinePrevSarmInfo[i][7] + `</td>
+                        <td>` + arrMachinePrevSarmInfo[i][8] + `</td>
+                        <td>` + arrMachinePrevSarmInfo[i][9] + `</td>
+                      </tr>`;
+                $("#tbodyMachinePrevSarmInfo").append(strRow);
+              }
+            }
+            
+            let arrMachinePrevSarmInfo_S = arrMachinePrevSarmInfo.filter(v => v[8] == "退料");
+            $("#sarmType").empty();
+            $("#sarmType").append('<option>补料</option><option>减料</option>');
+            $("#sarmType").selectpicker('refresh');
+            $("#sarmPreNo").empty();
+            
+            if (arrPreNo.length > 1) {
+              $("#sarmPreNo").append('<option value="">检测到多个物料，选择一个物料……</option>');
+              for (let i = 0; i < arrPreNo.length; i++) { $("#sarmPreNo").append('<option>' + arrPreNo[i] + '</option>'); }
+              $("#sarmPreNo").prop('disabled', false);
+            } else if (arrPreNo.length > 0) {
+              $("#sarmPreNo").append('<option>' + arrPreNo[0] + '</option>');
+              $("#sarmPreNo").prop('disabled', false);
+            } else {
+              $("#sarmPreNo").append('<option value="">未找到标准物料编码，不影响提交，仓库会处理</option>');
+              $("#sarmPreNo").prop('disabled', true);
+            }
+            
+            $("#sarmPreNo").selectpicker('refresh');
+            $("#sarmProgress").text("");
+            $("#sarmNumber").val("");
+            $("#sarmReason").val("");
+            $("#judgeExpedited").prop("checked", false);
+            $("#divSarmReason").hide();
+            $("#showModalCalcSARM").animate({ height: "show" }, 1000);
+            $("#modalOuter").show();
+            Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: "物料数据分析结束！", showConfirmButton: true, timer: 3000 });
+          } else {
+            Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: "物料数据分析出错" + result[1], showConfirmButton: true });
+          }
+        } else if (result.isDenied) {
+          let divRetuCol = $("#retuCol");
+          let numRetuRow = divRetuCol.find("div[name='retuRow']").length;
+          
+          if (numRetuRow > 1) {
+            let divSource;
+            for (let i = numRetuRow - 1; i > 0; i--) {
+              divSource = divRetuCol.find("div[name='retuRow']").eq(i);
+              divSource.remove();
+            }
+          }
+          
+          let divRetuRow0 = divRetuCol.find("div[name='retuRow']").eq(0);
+          let row0Selectpicker = divRetuRow0.find("select[name='retuMachine']");
+          row0Selectpicker.empty();
+          
+          let row0Selectpicker2 = divRetuRow0.find("select[name='returnPreNoSelect']");
+          row0Selectpicker2.empty();
+          
+          if (arrPreNo.length > 0) { divRetuRow0.find("input[name='returnPreNoInput']").val(arrPreNo[0]); } 
+          else { divRetuRow0.find("input[name='returnPreNoInput']").val(''); }
+          
+          divRetuRow0.find("input[name='retuNumber']").val('');
+          
+          let strOption = "<option value=''>选择……</option>";
+          for (let i = 0; i < arrViewPlanMachine.length; i++) {
+            if (arrViewPlanMachine[i] == tdPrev3Val) { strOption = strOption + "<option selected>" + arrViewPlanMachine[i] + "</option>"; } 
+            else { strOption = strOption + "<option>" + arrViewPlanMachine[i] + "</option>"; }
+          }
+          row0Selectpicker.append(strOption);
+          row0Selectpicker.selectpicker("refresh");
+          
+          strOption = "<option value='' selected disabled>选择……</option>";
+          for (let i = 0; i < arrViewPlanMaterial.length; i++) { strOption = strOption + "<option>" + arrViewPlanMaterial[i] + "</option>"; }
+          row0Selectpicker2.append(strOption);
+          row0Selectpicker2.selectpicker("refresh");
+          
+          $("#showModalCalcRETU").animate({ height: "show" }, 1000);
+          $("#modalOuter").show();
+        }
+      });
+    }
+    
+    if (tdSeq == 9) {
+      let tdObj = $(this);
+      let tdVal = tdObj.text();
+      let arrSkuTemplate = arrTemplate.filter(v => v[0].indexOf(tdVal) != -1);
+      
+      if (arrSkuTemplate.length > 0) {
+        window.open("https://drive.google.com/file/d/" + arrSkuTemplate[0][1] + "/preview");
+      } else {
+        Swal.fire("未有该SKU的缺陷接受标准");
+      }
+    }
+  });
+
+  /**
+   * 点击【查询当前补减料】按钮
+   */
+  $("#btnViewCurrentSARS").on("click", function() {
+    Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在获取当前页面机台已经提交的补减料数据……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>' });
+    google.script.run.withSuccessHandler(result => {
+      if (result[0] == "OK") {
+        let arrSarmSumitData = result[1];
+        let sarmTotalDate = dayjs().format("YYYY-MM-DD");
+        let nowHourMinute = dayjs().format("HH:mm");
+        let sarmCurrentDateShift = "";
+        
+        if (nowHourMinute >= "08:00" && nowHourMinute < "09:00") { sarmCurrentDateShift = sarmTotalDate + "_" + 2; } 
+        else if (nowHourMinute >= "16:00" && nowHourMinute < "17:00") { sarmCurrentDateShift = sarmTotalDate + "_" + 3; } 
+        else if (nowHourMinute >= "00:00" && nowHourMinute < "01:00") { sarmCurrentDateShift = sarmTotalDate + "_" + 1; }
+        
+        if (sarmCurrentDateShift != "") {
+          let arrSarmTotalData_CurrentMachine = arrSarmSumitData.filter(v => arrViewPlanMachine.indexOf(v[5]) != -1 && v[1] + "_" + v[2] == sarmCurrentDateShift);
+          Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: '补减汇总数据获取成功！', showConfirmButton: true });
+          
+          if (arrSarmTotalData_CurrentMachine.length > 0) {
+            arrSarmTotalData_CurrentMachine.forEach(v => v.shift());
+            arrSarmTotalData_CurrentMachine = arrSarmTotalData_CurrentMachine.map(v => [v[11], v[0], v[1], v[4].toString().substring(0, 8), v[5], v[6], v[7], v[8]]);
+            $("#tbodyMachinePrevSarmInfo").empty();
+            
+            for (let i = 0; i < arrSarmTotalData_CurrentMachine.length; i++) {
+              let strRow = '<tr>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][0] + '</td>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][1] + '</td>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][2] + '</td>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][3] + '</td>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][4] + '</td>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][5] + '</td>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][6] + '</td>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][7] + '</td>' +
+                     '</tr>';
+              $("#tbodyMachinePrevSarmInfo").append(strRow);
+            }
+          } else {
+            Swal.fire("未获取到补减结果，如确实登记过补减料，请与领班及仓库确认");
+          }
+        } else {
+          Swal.fire("已过查询时间");
+        }
+      } else {
+        Swal.fire("获取补减结果出错：" + result[1]);
+      }
+    }).getSarmTotalData(true, "补料减料");
+  });
+
+  /**
+   * 当班补减料表格中数据的点击编辑事件
+   */
+  $("#tbodyMachinePrevSarmInfo").on("click", "td", async function() {
+    let tbody = $("#tbodyMachinePrevSarmInfo");
+    let tdSeq = $(this).index();
+    let trSeq = $(this).parent().index();
+    
+    if (tdSeq == 7) {
+      let tdMachine = tbody.find("tr").eq(trSeq).find("td").eq(3).text();
+      let tdPreNo = tbody.find("tr").eq(trSeq).find("td").eq(5).text();
+      let tdPreType = tbody.find("tr").eq(trSeq).find("td").eq(6).text();
+      let tdVal = Number($(this).text());
+      
+      await Swal.fire({
+        title: '更新数量',
+        text: tdMachine + "　" + tdPreNo + "　" + tdPreType + "　" + tdVal,
+        input: 'text',
+        inputValue: '',
+        focusConfirm: true,
+        showCancelButton: true,
+        showDenyButton: false,
+        confirmButtonColor: '#3085d6',
+        denyButtonColor: '#d33',
+        cancelButtonColor: '#b8b8b8',
+        confirmButtonText: '更新',
+        denyButtonText: '清除',
+        cancelButtonText: '返回',
+        backdrop: true,
+        preConfirm: (currentInputVal) => {
+          let regNum = /^-?\d+(\.\d+)?$/;
+          if (!regNum.test(currentInputVal) || Number(currentInputVal) % 0.25 != 0) {
+            return Swal.showValidationMessage('<a>非法数字或不是0.25的倍数</a>');
+          }
+        },
+        allowOutsideClick: () => !Swal.isLoading()
+      }).then((result) => {
+        if (result.isConfirmed) {
+          if (result.value) {
+            $(this).text(result.value);
+            tbody.find("tr").eq(trSeq).css({ "background": "yellow" });
+          } 
+        }
+      });
+    }
+    
+    if (tdSeq == 6) {
+      let tdVal = Number($(this).text());
+      let objSelect = { '补料': '补料', '减料': '减料' };
+      
+      await Swal.fire({
+        title: '更新单元格内容',
+        text: tdVal,
+        input: 'select',
+        inputOptions: objSelect,
+        focusConfirm: true,
+        showCancelButton: true,
+        showDenyButton: false,
+        confirmButtonColor: '#3085d6',
+        denyButtonColor: '#d33',
+        cancelButtonColor: '#b8b8b8',
+        confirmButtonText: '更新',
+        denyButtonText: '清除',
+        cancelButtonText: '返回'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          if (result.value) {
+            $(this).text(result.value);
+            tbody.find("tr").eq(trSeq).css({ "background": "yellow" });
+          } 
+        }
+      });
+    }
+  });
+
+  /**
+   * 点击【保存当前补减料修改】按钮
+   */
+  $("#btnSaveCurrentSARS").on("click", function() {
+    let tbody = $("#tbodyMachinePrevSarmInfo");
+    let rows = tbody.find("tr").length;
+    let arrSaveSarsData = [];
+    
+    if (rows > 0) {
+      let isYellow = false;
+      let bgColor = "";
+      for (let i = 0; i < rows; i++) {
+        bgColor = tbody.find("tr").eq(i).css("background-color");
+        isYellow = (bgColor === "rgb(255, 255, 0)" || bgColor === "rgba(255, 255, 0, 1)" || bgColor === "yellow");
+        if (isYellow) {
+          arrSaveSarsData.push([
+            Number(tbody.find("tr").eq(i).find("td").eq(0).text()),
+            tbody.find("tr").eq(i).find("td").eq(6).text(),
+            Number(tbody.find("tr").eq(i).find("td").eq(7).text()),
+            Number(tbody.find("tr").eq(i).find("td").eq(7).text()),
+            i
+          ]);
+        }
+      }
+    }
+    
+    if (arrSaveSarsData.length > 0) {
+      Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在保存当前页面机台修改的补减料数据……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>' });
+      google.script.run.withSuccessHandler(result => {
+        if (result[0] == "OK") {
+          let arrEditTbodyRows = result[1];
+          for (let i = 0; i < arrEditTbodyRows.length; i++) {
+            tbody.find("tr").eq(arrEditTbodyRows[i][0]).css({ "background": "green" });
+          }
+          Swal.fire("保存当前页面机台修改的补减料数据成功");
+        } else {
+          Swal.fire("保存当前页面机台修改的补减料数据失败：" + result[1]);
+        }
+      }).saveEditSarsData(arrSaveSarsData);
+    }
+  });
+
+  /**
+   * 点击【查询当前退料】按钮
+   */
+  $("#btnViewCurrentRETU").on("click", function() {
+    $("#showModalCalcRETU").hide();
+    Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在获取当前页面机台已经提交的退料数据……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>' });
+    
+    google.script.run.withSuccessHandler(result => {
+      if (result[0] == "OK") {
+        let arrSarmSumitData = result[1];
+        let sarmTotalDate = dayjs().format("YYYY-MM-DD");
+        let nowHourMinute = dayjs().format("HH:mm");
+        let sarmCurrentDateShift = "";
+        
+        if (nowHourMinute >= "08:00" && nowHourMinute < "16:00") { sarmCurrentDateShift = sarmTotalDate + "_" + 2; } 
+        else if (nowHourMinute >= "16:00" && nowHourMinute < "24:00") { sarmCurrentDateShift = sarmTotalDate + "_" + 3; } 
+        else if (nowHourMinute >= "00:00" && nowHourMinute < "08:00") { sarmCurrentDateShift = sarmTotalDate + "_" + 1; }
+        
+        if (sarmCurrentDateShift != "") {
+          let arrSarmTotalData_CurrentMachine = arrSarmSumitData.filter(v => arrViewPlanMachine.indexOf(v[5]) != -1 && v[1] + "_" + v[2] == sarmCurrentDateShift);
+          Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: '退料数据获取成功！', showConfirmButton: true });
+          
+          if (arrSarmTotalData_CurrentMachine.length > 0) {
+            arrSarmTotalData_CurrentMachine.forEach(v => v.shift());
+            arrSarmTotalData_CurrentMachine = arrSarmTotalData_CurrentMachine.map(v => [v[11], v[0], v[1], v[4].toString().substring(0, 8), v[5], v[6], v[7], v[8]]);
+            $("#tbodyMachinePrevRetuInfo").empty();
+            
+            for (let i = 0; i < arrSarmTotalData_CurrentMachine.length; i++) {
+              let strRow = '<tr>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][0] + '</td>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][1] + '</td>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][2] + '</td>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][3] + '</td>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][4] + '</td>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][5] + '</td>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][6] + '</td>' +
+                      '<td>' + arrSarmTotalData_CurrentMachine[i][7] + '</td>' +
+                     '</tr>';
+              $("#tbodyMachinePrevRetuInfo").append(strRow);
+            }
+          } else {
+            Swal.fire("未获取到退料结果，如确实登记过退料，请与领班及仓库确认");
+          }
+        } else {
+          Swal.fire("已过查询时间");
+        }
+      } else {
+        Swal.fire("获取退料结果出错：" + result[1]);
+      }
+    }).getSarmTotalData(true, "退料");
+    
+    $("#showModalViewEditRETU").show();
+  });
+
+  /**
+   * 点击【取消当前退料】编辑视图，返回填写表单
+   */
+  $("#btnCancleCurrentRETU").on("click", function() {
+    $("#showModalCalcRETU").show();
+    $("#showModalViewEditRETU").hide();
+  });
+
+  /**
+   * 当班退料表格中数据的点击编辑事件
+   */
+  $("#tbodyMachinePrevRetuInfo").on("click", "td", async function() {
+    let tbody = $("#tbodyMachinePrevRetuInfo");
+    let tdSeq = $(this).index();
+    let trSeq = $(this).parent().index();
+    
+    if (tdSeq == 7) {
+      let tdMachine = tbody.find("tr").eq(trSeq).find("td").eq(3).text();
+      let tdPreNo = tbody.find("tr").eq(trSeq).find("td").eq(5).text();
+      let tdPreType = tbody.find("tr").eq(trSeq).find("td").eq(6).text();
+      let tdVal = Number($(this).text());
+      
+      await Swal.fire({
+        title: '更新数量',
+        text: tdMachine + "　" + tdPreNo + "　" + tdPreType + "　" + tdVal,
+        input: 'text',
+        inputValue: '',
+        focusConfirm: true,
+        showCancelButton: true,
+        showDenyButton: false,
+        confirmButtonColor: '#3085d6',
+        denyButtonColor: '#d33',
+        cancelButtonColor: '#b8b8b8',
+        confirmButtonText: '更新',
+        denyButtonText: '清除',
+        cancelButtonText: '返回',
+        backdrop: true, 
+        preConfirm: (currentInputVal) => {
+          let regNum = /^-?\d+(\.\d+)?$/;
+          if (!regNum.test(currentInputVal) || Number(currentInputVal) % 0.25 != 0) {
+            return Swal.showValidationMessage('<a>非法数字或不是0.25的倍数</a>');
+          }
+        },
+        allowOutsideClick: () => !Swal.isLoading()
+      }).then((result) => {
+        if (result.isConfirmed) {
+          if (result.value) {
+            $(this).text(result.value);
+            tbody.find("tr").eq(trSeq).css({ "background": "yellow" });
+          } 
+        }
+      });
+    }
+  });
+
+  /**
+   * 点击【保存当前退料修改】按钮
+   */
+  $("#btnSaveCurrentRETU").on("click", function() {
+    let tbody = $("#tbodyMachinePrevRetuInfo");
+    let rows = tbody.find("tr").length;
+    let arrSaveSarsData = [];
+    
+    if (rows > 0) {
+      let isYellow = false;
+      let bgColor = "";
+      for (let i = 0; i < rows; i++) {
+        bgColor = tbody.find("tr").eq(i).css("background-color");
+        isYellow = (bgColor === "rgb(255, 255, 0)" || bgColor === "rgba(255, 255, 0, 1)" || bgColor === "yellow");
+        if (isYellow) {
+          arrSaveSarsData.push([
+            Number(tbody.find("tr").eq(i).find("td").eq(0).text()),
+            tbody.find("tr").eq(i).find("td").eq(6).text(),
+            Number(tbody.find("tr").eq(i).find("td").eq(7).text()),
+            Number(tbody.find("tr").eq(i).find("td").eq(7).text()),
+            i
+          ]);
+        }
+      }
+    }
+    
+    if (arrSaveSarsData.length > 0) {
+      Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在保存当前页面机台修改的退料数据……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>' });
+      google.script.run.withSuccessHandler(result => {
+        if (result[0] == "OK") {
+          let arrEditTbodyRows = result[1];
+          for (let i = 0; i < arrEditTbodyRows.length; i++) {
+            tbody.find("tr").eq(arrEditTbodyRows[i][0]).css({ "background": "green" });
+          }
+          Swal.fire("保存当前页面机台修改的退料数据成功");
+          $("#showModalCalcRETU").show();
+          $("#showModalViewEditRETU").hide();
+        } else {
+          Swal.fire("保存当前页面机台修改的退料数据失败：" + result[1]);
+        }
+      }).saveEditSarsData(arrSaveSarsData);
+    }
+  });
+
+  /**
+   * 双击顶部大标题，弹出 Kaizen 选项查询总菜单
+   */
+  $("#viewSarmOrPostageTotalResult").on("dblclick", function() {
+    $("#modalViewSarmOrPostageSelect").modal('show');
+  });
+
+  /**
+   * 查询所有补减退料结果
+   */
+  $("#viewSarmTotalResult").on("click", function() {
+    let sarmTotalDate = dayjs().format("YYYY-MM-DD");
+    let nowHourMinute = dayjs().format("HH:mm");
+    
+    if ((nowHourMinute > "01:15" && nowHourMinute < "07:45") || (nowHourMinute > "09:15" && nowHourMinute < "15:45") || (nowHourMinute > "17:15" && nowHourMinute < "23:45")) {
+      let viewMachine = $("#viewMachine").val();
+      let tbodydisplay = $("#tbodydisplay");
+      let rows = tbodydisplay.find("tr").length;
+      
+      if (viewMachine && rows > 0) {
+        let sarmTotalDateShift = "";
+        if (nowHourMinute > "09:15" && nowHourMinute < "15:45") { sarmTotalDateShift = sarmTotalDate + "_" + 2; } 
+        else if (nowHourMinute > "17:15" && nowHourMinute < "23:45") { sarmTotalDateShift = sarmTotalDate + "_" + 3; } 
+        else if (nowHourMinute > "01:15" && nowHourMinute < "07:45") { sarmTotalDateShift = sarmTotalDate + "_" + 1; }
+        
+        arrSarmTotalData = JSON.parse(objSarmTotalData);
+        if (arrSarmTotalData.length < 1) {
+          Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在获取补减汇总数据……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>' });
+          google.script.run.withSuccessHandler(result => {
+            if (result[0] == "OK") {
+              arrSarmTotalData = result[1];
+              objSarmTotalData = JSON.stringify(arrSarmTotalData);
+              arrSarmTotalData_Machine = arrSarmTotalData.filter(v => arrViewPlanMachine.indexOf(v[5]) != -1 && v[1] + "_" + v[2] == sarmTotalDateShift);
+              Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: '补减汇总数据获取成功！', showConfirmButton: true });
+              
+              if (arrSarmTotalData_Machine.length > 0) {
+                arrSarmTotalData_Machine.forEach(v => v.shift());
+                arrSarmTotalData_Machine.unshift(["日期", "班次", "工号", "姓名", "机台", "C#编码", "配方编码", "补退料类型", "包数(小包)", "修正数量", "系统处理"]);
+                let swalHtml = General_Htmltable(arrSarmTotalData_Machine, 100, "common");
+                Swal.fire({ allowOutsideClick: false, width: '90vw', icon: 'info', title: '补减汇总结果', html: swalHtml, showConfirmButton: true });
+              } else {
+                Swal.fire("未获取到补减汇总结果，如确实登记过补减料，请与领班及仓库确认");
+              }
+            } else {
+              Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: "补减汇总数据获取出错：" + result[1], showConfirmButton: true });
+            }
+          }).getSarmTotalData(false, "补料减料");
+        } else {
+          arrSarmTotalData_Machine = arrSarmTotalData.filter(v => arrViewPlanMachine.indexOf(v[5]) != -1 && v[1] + "_" + v[2] == sarmTotalDateShift);
+          if (arrSarmTotalData_Machine.length > 0) {
+            arrSarmTotalData_Machine.forEach(v => v.shift());
+            arrSarmTotalData_Machine.unshift(["日期", "班次", "工号", "姓名", "机台", "C#编码", "配方编码", "补退料类型", "包数(小包)", "修正数量", "系统处理", "行数"]);
+            let swalHtml = General_Htmltable(arrSarmTotalData_Machine, 100, "common");
+            Swal.fire({ allowOutsideClick: false, width: '90vw', icon: 'info', title: '补减汇总结果', html: swalHtml, showConfirmButton: true });
+          } else {
+            Swal.fire("未获取到补减汇总结果，如确实登记过补减料，请与领班及仓库确认");
+          }
+        }
+      } else {
+        Swal.fire("请查询机台计划！");
+      }
+    } else {
+      Swal.fire("非查询补减结果时间段");
+    }
+  });
+
+  /**
+   * 查询送料结果
+   */
+  $("#viewPostageResult").on("click", function() {
+    let viewMachine = $("#viewMachine").val();
+    let tbodydisplay = $("#tbodydisplay");
+    let rows = tbodydisplay.find("tr").length;
+    
+    if (viewMachine && rows > 0) {
+      if (arrPostageAllData.length < 1) {
+        Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在获取送料数据……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>' });
+        google.script.run.withSuccessHandler(result => {
+          if (result[0] == "OK") {
+            arrPostageAllData = result[1];
+            objPostageAllData = JSON.stringify(arrPostageAllData);
+            arrPostageAllData_Machine = arrPostageAllData.filter(v => arrViewPlanMachine.indexOf(v[8]) != -1);
+            Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: '补减汇总数据获取成功！', showConfirmButton: true });
+            
+            if (arrPostageAllData_Machine.length > 0) {
+              arrPostageAllData_Machine.unshift(["日期", "班次", "送料工", "工号", "源数据", "拌料计划代码", "配方编码", "车间", "车间机台号(AEM)", "计划送料量(包)"]);
+              let swalHtml = General_Htmltable(arrPostageAllData_Machine, 100, "common");
+              Swal.fire({ allowOutsideClick: false, width: '90vw', icon: 'info', title: '补减汇总结果', html: swalHtml, showConfirmButton: true });
+            } else {
+              Swal.fire("未获取到送料结果，请与领班及仓库确认");
+            }
+          } else {
+            Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: "补减汇总数据获取出错：" + result[1], showConfirmButton: true });
+          }
+        }).getPostageData();
+      } else {
+        arrPostageAllData_Machine = arrPostageAllData.filter(v => arrViewPlanMachine.indexOf(v[8]) != -1);
+        if (arrPostageAllData_Machine.length > 0) {
+          arrPostageAllData_Machine.unshift(["日期", "班次", "送料工", "工号", "源数据", "拌料计划代码", "配方编码", "车间", "车间机台号(AEM)", "计划送料量(包)"]);
+          let swalHtml = General_Htmltable(arrPostageAllData_Machine, 100, "common");
+          Swal.fire({ allowOutsideClick: false, width: '90vw', icon: 'info', title: '补减汇总结果', html: swalHtml, showConfirmButton: true });
+        } else {
+          Swal.fire("未获取到送料结果，请与领班及仓库确认");
+        }
+      }
+    } else {
+      Swal.fire("请查询机台计划！");
+    }
+  });
+
+  /**
+   * 同步补减原因下拉框的内容到文本输入框
+   */
+  $("#sarmReasonSelect").on("change", function() {
+    let sarmReasonSelectVal = $("#sarmReasonSelect").val();
+    $("#sarmReason").val(sarmReasonSelectVal);
+  });
+
+  /**
+   * 手工增加物料编码并解析
+   */
+  $("#handAddSkuPrePo").on("dblclick", async function() {
+    let listMachine = arrAllMachine;
+    let html_text = `
+      <div class="container" style="height:30vh">
+        <div class="row" style="margin-top:15px">
+          <div class="col">
+            <div class="input-group">
+              <div class="input-group-prepend">
+                <a class="input-group-text" style="font-size:small">机台</a>
+              </div>
+              <select id="handAddMachine" class="form-control selectpicker" data-none-selected-text="选择机台……" data-size="5" data-live-search="true" data-live-search-placeholder="搜索" data-style="btn-outline-danger">
+                 <option value="" selected disabled>选择机台……</option>
+                 ${listMachine}
+              </select>
+              <div class="input-group-prepend">
+                <a class="input-group-text" style="font-size:small">物料编码</a>
+              </div>
+              <input id="handAddPreNo" class="form-control" type="text" placeholder="扫描……" value="" style="font-size:small">
+              <div class="input-group-prepend">
+                <a class="input-group-text" style="font-size:small">SKU</a>
+              </div>
+              <input id="handAddSku" class="form-control" type="text" placeholder="输入……" value="" style="font-size:small">
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    let formValues = [];
+    await Swal.fire({
+      position: 'top',
+      width: '80vw',
+      title: '手工添加物料编码和SKU',
+      html: html_text,
+      focusConfirm: true,
+      showCancelButton: true,
+      showDenyButton: false,
+      confirmButtonColor: '#3085d6',
+      denyButtonColor: '#d33',
+      cancelButtonColor: '#b8b8b8',
+      confirmButtonText: '更新',
+      denyButtonText: '清除',
+      cancelButtonText: '返回',
+      willOpen: () => {
+        $("#handAddMachine").selectpicker('refresh');
+        
+        // 扫码输入限流
+        $("#handAddPreNo").on("input", function() {
+          let timearr = [0, 0];
+          let limitedTime = 40;
+          timearr[0] = new Date().getTime();
+          $(this).keydown(function() {
+            timearr[1] = new Date().getTime();
+            if ($(this).val().length > 1 && Math.abs(timearr[1] - timearr[0]) > limitedTime) {
+              $(this).val('');
+            }
+          });
+        });
+        
+        // 解析编码
+        $("#handAddPreNo").on("input", function() {
+          let thisVal = $(this).val();
+          let retuPreNo = thisVal.split("/")[0];
+          if (retuPreNo.length < 5 || retuPreNo.length > 6) {
+            $(this).val('');
+          } else {
+            $(this).val(retuPreNo);
+          }
+        });
+      },
+      preConfirm: () => {
+        let handAddMachine = $("#handAddMachine").val();
+        let handAddPreNo = $("#handAddPreNo").val();
+        let handAddSku = $("#handAddSku").val();
+        let arrSwalHtmlData = [handAddMachine, handAddSku, handAddPreNo];
+        formValues = arrSwalHtmlData;
+        return arrSwalHtmlData;
+      }
+    }).then((result) => {
+      if (result.isConfirmed) {    
+        if (formValues && formValues[0] != "" && formValues[1] != "" && formValues[2] != "") {
+          $("#sarmMachine").val(formValues[0]);
+          let selectTemp = $("#sarmPreNo");
+          selectTemp.append('<option>' + formValues[2] + '</option>');
+          selectTemp.selectpicker('val', [formValues[2]]);
+          selectTemp.selectpicker('refresh');
+          $("#sarmSku").val(formValues[1]);
+        } else {
+          Swal.fire("手工添加不能为空");
+        } 
+      }
+    });
+  });
+  
+  /**
+   * 退料框编码输入的扫码防抖限流
+   */
+  $(document).on('input', "input[name='returnPreNoInput']", function() {
+    let timearr = [0, 0];
+    let limitedTime = 40;
+    timearr[0] = new Date().getTime();
+    $(this).keydown(function() {
+      timearr[1] = new Date().getTime();
+      if ($(this).val().length > 1 && Math.abs(timearr[1] - timearr[0]) > limitedTime) {
+        $(this).val('');
+      }
+    });
+  });
+
+  /**
+   * 退料框编码变更时验证物料编码格式
+   */
+  $(document).on('change', "input[name='returnPreNoInput']", function() {
+    let thisVal = $(this).val();
+    let retuPreNo = thisVal.split("/")[0];
+    if (retuPreNo.length < 5 || retuPreNo.length > 6) {
+      $(this).val('');
+    } else {
+      $(this).val(retuPreNo);
+    }
+  });
+
+  // 用于增加退料行的 HTML 模板片段
+  let strRetuRowPart1 = `
+    <div name="retuRow" class="row" style="margin-top:15px">
+      <div class="col">
+        <div class="input-group">
+          <div class="input-group-prepend">
+            <button name="btnDelRow" class="btn btn-sm btn-danger">-</button>
+          </div> 
+          <div class="input-group-prepend">
+            <b name="changeMachine" class="input-group-text" style="font-size:small">机台</b>
+          </div>
+          <select name="retuMachine" class="form-control selectpicker" data-none-selected-text="选择机台……" data-size="5" data-live-search="true" data-live-search-placeholder="搜索" data-style="btn-outline-danger">
+  `;
+  let strRetuRowPart2 = `
+          </select>              
+          <div class="input-group-prepend">
+            <b class="input-group-text" style="font-size:small">物料编码</b>
+          </div>
+          <div class="form-control" style="font-size:small;position:relative;top:0;left:0;right:0">
+            <div style="position:absolute;left:0;top:0;right:0">
+              <select name="returnPreNoSelect" class="form-control selectpicker selectFontUnset" data-none-selected-text="选择物料……" data-size="8" data-live-search="true" data-live-search-placeholder="搜索" data-style="btn-outline-danger">
+  `;
+  let strRetuRowPart3 = `
+              </select>
+            </div>
+            <div style="width:calc(100% - 35px);height:100%;position:absolute;left:0;top:0;right:0;">
+              <input name="returnPreNoInput" class="form-control" type="text" placeholder="选择或扫描……" value=""  style="border:0;background-color:unset;font-size:small">
+            </div>
+          </div>
+          <div class="input-group-prepend">
+            <b class="input-group-text" style="font-size:small">输入数量(小包)</b>
+          </div>
+          <input name="retuNumber" type="number" class="form-control" style="font-size:small">
+          <input name="retuReason" class="form-control" type="text" style="font-size:small;display:none" placeholder="超过限制，标注原因或寻求领班帮助">
+          <div class="input-group-prepend">
+            <button name="btnAddRow" class="btn btn-sm btn-primary">+</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  /**
+   * 退料界面：增加一行新纪录
+   */
+  $(document).on('click', "button[name='btnAddRow']", function() {
+    let strMachineOption = "<option value=''>选择……</option>";
+    for (let i = 0; i < arrViewPlanMachine.length; i++) {
+      strMachineOption = strMachineOption + "<option>" + arrViewPlanMachine[i] + "</option>";
+    }
+    
+    let strRetuPreNoOption = "<option value='' selected disabled>选择……</option>";
+    for (let i = 0; i < arrViewPlanMaterial.length; i++) {
+      strRetuPreNoOption = strRetuPreNoOption + "<option>" + arrViewPlanMaterial[i] + "</option>";
+    }
+    
+    let strRetuRow = strRetuRowPart1 + strMachineOption + strRetuRowPart2 + strRetuPreNoOption + strRetuRowPart3;
+    let divSource = $(this).parent().parent().parent().parent();
+    divSource.after(strRetuRow);
+    divSource.next().find('.selectpicker').selectpicker('refresh');
+  });
+
+  /**
+   * 退料界面：物料选择下拉框同步值至输入框
+   */
+  $(document).on('change', "select[name='returnPreNoSelect']", function() {
+    let divSource = $(this).parent().parent().parent().parent();
+    let selectMaterialSource = divSource.find("select[name='returnPreNoSelect']").val();
+    divSource.find("input[name='returnPreNoInput']").val(selectMaterialSource);
+  });
+
+  /**
+   * 退料界面：删除指定记录行
+   */
+  $(document).on('click', "button[name='btnDelRow']", function() {
+    let divRetuCol = $("#retuCol");
+    let numRetuRow = divRetuCol.find("div[name='retuRow']").length;
+    if (numRetuRow > 1) {
+      let divSource = $(this).parent().parent().parent().parent();
+      divSource.remove();
+    } else {
+      Swal.fire("必须保留一个");
+    }
+  });
+
+  /**
+   * 补料/减料数量判断及警告展示
+   */
+  $("#sarmType,#sarmNumber").on("change", function() {
+    $("#sarmProgress").text("");
+    $("#sarmReason").val("");
+    $("#divSarmReason").hide();
+    
+    let machine = $("#sarmMachine").val();
+    let sarmSku = $("#sarmSku").val();
+    let sarmType = $("#sarmType").val();
+    let sarmNumber = $("#sarmNumber").val();
+    let sarmStdNumber_S_A = 0;
+    
+    if (Number(sarmNumber) % 0.25 != 0) { 
+      $("#sarmNumber").val("");
+      $("#judgeExpedited").prop("checked", false);
+      Swal.fire("请输入0.25的倍数");
+      return; 
+    }
+    
+    if (machine.substring(2, 4) == "HT") { sarmStdNumber_S_A = 6; } 
+    else if (machine.substring(2, 4) == "FT") { sarmStdNumber_S_A = 2; }
+    
+    if (((sarmType == "补料" || sarmType == "减料") && sarmNumber > sarmStdNumber_S_A)) {
+      $("#sarmProgress").text("超过限制，寻求领班帮助");
+      $("#divSarmReason").show();
+    }
+  });
+
+  /**
+   * 退料数量变更判断是否超出标准限制
+   */
+  $(document).on('change', "input[name='retuNumber'],select[name='retuMachine']", function() {
+    let divSource = $(this).parent().parent().parent(); 
+    let machine = divSource.find("select[name='retuMachine']").val();
+    let sarmNumber = divSource.find("input[name='retuNumber']").val();
+    
+    if (Number(sarmNumber) % 0.25 != 0) { 
+      divSource.find("input[name='retuNumber']").val("");
+      Swal.fire("请输入0.25的倍数");
+      return; 
+    }
+    
+    let sarmStdNumber_R = 0;
+    if (machine && sarmNumber) {
+      if (machine.substring(2, 4) == "HT") { sarmStdNumber_R = 2; } 
+      else if (machine.substring(2, 4) == "FT") { sarmStdNumber_R = 1; }
+      
+      if ((sarmNumber > sarmStdNumber_R)) {
+        $(this).next().show();
+      } else {
+        $(this).next().val('');
+        $(this).next().hide();
+      }
+    }
+  });
+  
+  /**
+   * 退料界面：双击改变机台展示全部可用机台（解除数量限制）
+   */
+  $(document).on('dblclick', "b[name='changeMachine']", function() {
+    let divSource = $(this).parent().parent().parent().parent();
+    let selectTemp = divSource.find("select[name='retuMachine']");
+    let optionLen = selectTemp.find("option").length;
+    console.log("初始长度", optionLen);
+    
+    if (optionLen < 20) {
+      let listMachine = '<option value="" selected disabled>选择……</option>' + arrAllMachine;
+      selectTemp.empty();
+      selectTemp.append(listMachine);
+    } else {
+      let listMachine = '<option value="" selected disabled>选择……</option>' + arrViewPlanMachine.map(v => '<option>' + v + '</option>');
+      selectTemp.empty();
+      selectTemp.append(listMachine);
+    }
+    selectTemp.selectpicker('refresh');
+  });
+
+  /**
+   * 提交新增的退料记录
+   */
+  $("#btnRetuSubmit").on("click", function() {
+    let sarmStdNumber_R = 0;
+    let sarmSapId = $("#viewId").val();
+    let sarmName = $("#viewName").val();
+    let divRetuCol = $("#retuCol");
+    let numRetuRow = divRetuCol.find("div[name='retuRow']").length;
+    let arrData = [];
+    let arrError = [];
+    let workshop = "";
+    
+    let currentDateTime = new Date();
+    let currentHour = currentDateTime.getHours();
+    let currentDate = dayjs(currentDateTime).format("YYYY-MM-DD");
+    let sarmDateShift = ""; 
+    
+    if (currentHour >= 16) { sarmDateShift = currentDate + "_" + 3; } 
+    else if (currentHour >= 8) { sarmDateShift = currentDate + "_" + 2; } 
+    else if (currentHour >= 0) { sarmDateShift = currentDate + "_" + 1; }
+ 
+    for (let i = 0; i < numRetuRow; i++) {
+      workshop = "";
+      let rowMachine = divRetuCol.find("div[name='retuRow']").eq(i).find("select[name='retuMachine']").val();
+      let rowPreNo = divRetuCol.find("div[name='retuRow']").eq(i).find("input[name='returnPreNoInput']").val();
+      let rowRetuNum = divRetuCol.find("div[name='retuRow']").eq(i).find("input[name='retuNumber']").val();
+      let rowRetuReason = divRetuCol.find("div[name='retuRow']").eq(i).find("input[name='retuReason']").val();
+      
+      if (rowMachine.substring(2, 4) == "HT") { sarmStdNumber_R = 2; } 
+      else if (rowMachine.substring(2, 4) == "FT") { sarmStdNumber_R = 1; }
+      
+      if (rowMachine == "" || rowPreNo == "" || rowRetuNum == "" || rowRetuNum == 0) {
+        arrError.push(["第" + (i + 1) + "行记录有空数据"]);
+      } else if ((rowRetuNum > sarmStdNumber_R) && rowRetuReason == "") {
+        arrError.push(["第" + (i + 1) + "行超限制，未注原因"]);
+      } else {
+        if (rowMachine && (rowMachine.substring(1, 2) == "0" || rowMachine.substring(1, 2) == "1")) { workshop = "TB1"; } 
+        else if (rowMachine && rowMachine.substring(1, 2) == "2") { workshop = "TB2"; }
+        arrData.push([workshop, sarmDateShift.split("_")[0], sarmDateShift.split("_")[1], sarmSapId, sarmName, rowMachine, "", rowPreNo, "退料", rowRetuNum, rowRetuNum, "", "", rowRetuReason]);
+      }
+    }
+    
+    if (arrError.length < 1) {
+      Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在提交数据……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>' });
+      google.script.run.withSuccessHandler(result => {
+        if (result[0] == "OK") {
+          Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: result[1], showConfirmButton: true });
+          $("#modalOuter").click();
+        } else {
+          Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: "提交出错：" + result[1], showConfirmButton: true });
+        }
+      }).saveRetuInfo(arrData);
+    } else {
+      Swal.fire(arrError.join("\n"));
+    }
+  });
+
+  /**
+   * 提交新增的补减料记录
+   */
+  $("#btnSarmSubmit").on("click", function() {
+    let machine = $("#sarmMachine").val();
+    let sarmSku = $("#sarmSku").val();
+    let sarmType = $("#sarmType").val();
+    let sarmNumber = $("#sarmNumber").val();
+    let sarmStdNumber_S_A = 0;
+    let sarmDateShift = $("#sarmDateShift").val();
+    let sarmSapId = $("#viewId").val();
+    let sarmName = $("#viewName").val();
+    let sarmPreNo = $("#sarmPreNo").val();
+    let sarmStdPreNo = $("#sarmStdPreNo").val();
+    let judgeExpedited = $("#judgeExpedited").is(":checked");
+    
+    if (sarmStdPreNo == "" && sarmPreNo == "") {
+      sarmPreNo = '没找到，WH自行链接公式';
+    }
+    if (sarmStdPreNo != "" && (sarmPreNo == "" || Number(sarmNumber) < 0.001)) {
+      Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "物料编码和数量不能为空！", showConfirmButton: true });
+      return;
+    }
+    
+    if (machine.substring(2, 4) == "HT") { sarmStdNumber_S_A = 6; sarmStdNumber_R = 2; } 
+    else if (machine.substring(2, 4) == "FT") { sarmStdNumber_S_A = 2; sarmStdNumber_R = 1; }
+  
+    let arrNextPreNoSameCurrentPreNo = arrMachinePrevNextPlanInfo.filter(v => v[10] > sarmDateShift && v[11].indexOf(sarmPreNo) != -1);
+    if (sarmType == "补料" && arrNextPreNoSameCurrentPreNo.length > 0 && $("#sarmReason").val() == "") {
+      Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "下个班有此物料计划，请与领班确认有无送料量！", showConfirmButton: true });
+      $("#sarmProgress").text("与领班确认有无送料量？");
+      $("#divSarmReason").show();
+      return;
+    }
+    
+    if ((((sarmType == "补料" || sarmType == "减料") && sarmNumber > sarmStdNumber_S_A)) && $("#sarmReason").val() == "") {
+      $("#sarmProgress").text("超过限制，寻求领班帮助");
+      $("#divSarmReason").show();
+    } else if (sarmNumber > 0) {
+      Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在提交数据……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>' });
+      let workshop = "";
+      if (machine.substring(1, 2) == "0" || machine.substring(1, 2) == "1") { workshop = "TB1"; } 
+      else if (machine.substring(1, 2) == "2") { workshop = "TB2"; }
+      
+      let arrSarmSubmitData = [workshop, sarmDateShift.split("_")[0], sarmDateShift.split("_")[1], sarmSapId, sarmName, machine, sarmSku, sarmPreNo, sarmType, sarmNumber, sarmNumber, "", "", "", judgeExpedited, $("#sarmReason").val()];
+      
+      google.script.run.withSuccessHandler(result => {
+        if (result[0] == "OK") {
+          Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: result[1], showConfirmButton: true });
+          $("#modalOuter").click();
+        } else {
+          Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: "提交出错：" + result[1], showConfirmButton: true });
+        }
+      }).saveSarmInfo(arrSarmSubmitData);
+    }
+  });
+
+  /**
+   * 表格中输入完成计算新的 PO 残留信息，并在页面呈现逻辑颜色变化
+   * @param {HTMLElement} domTdInput - 输入框对象
+   * @param {number} poDoneNum - 目前为止的已完成量
+   */
+  function calcPoInfo(domTdInput, poDoneNum) {
+    let now = new Date();
+    let nowHour = now.getHours();
+    let nowMinute = now.getMinutes();
+    
+    if ((nowHour > 8 && nowHour < 14) || (nowHour == 14 && nowMinute < 45)) {
+      Swal.fire("现在输入没有用，14:30分计划更新后，会清空数据，请在14:45后输入");
+    } else {
+      $("#swalRemind").text("");
+      let tdSeqSwal = $(domTdInput).parent().index();
+      let trSeqSwal = $(domTdInput).parent().parent().index();
+      let tbodySwal = $(domTdInput).parent().parent().parent();
+      let skuTotalPlanNum = Number($("#skuTotalPlanNum").text());
+      let poPlanNum = Number(tbodySwal.find("tr").eq(trSeqSwal).find("td").eq(1).text());
+      let poShiftNum = Number(tbodySwal.find("tr").eq(trSeqSwal).find("td").eq(4).find("input").eq(0).val());
+      let newPoDoneNum = Number(poDoneNum) + poShiftNum;
+      
+      tbodySwal.find("tr").eq(trSeqSwal).find("td").eq(2).text(newPoDoneNum);
+      tbodySwal.find("tr").eq(trSeqSwal).find("td").eq(3).text(poPlanNum - Number(poDoneNum) - poShiftNum);
+      
+      if (poPlanNum <= newPoDoneNum) {
+        tbodySwal.find("tr").eq(trSeqSwal).css({ "background": "#B8B8B8" });
+        tbodySwal.find("tr").eq(trSeqSwal).find("td").eq(4).css({ "background": "#B8B8B8" });
+      } else {
+        tbodySwal.find("tr").eq(trSeqSwal).css({ "background": "unset" });
+        tbodySwal.find("tr").eq(trSeqSwal).find("td").eq(4).eq(0).css({ "background": "lightcyan" });
+      }
+      
+      let rows = tbodySwal.find("tr").length;
+      let totalDoneNum = 0;
+      let arrRowLeft = [];
+      let judgePoLeft = 0;
+      
+      for (let i = 0; i < rows; i++) {
+        totalDoneNum = totalDoneNum + Number(tbodySwal.find("tr").eq(i).find("td").eq(2).text());
+        arrRowLeft.push(Number(tbodySwal.find("tr").eq(i).find("td").eq(3).text()));
+        
+        if ((i < rows - 1 && Number(tbodySwal.find("tr").eq(i).find("td").eq(3).text()) < 0 && Number(tbodySwal.find("tr").eq(i + 1).find("td").eq(3).text()) == Number(tbodySwal.find("tr").eq(i + 1).find("td").eq(3).text())) || 
+            (i > 0 && Number(tbodySwal.find("tr").eq(i).find("td").eq(4).find("input").eq(0).val()) > 0 && Number(tbodySwal.find("tr").eq(i - 1).find("td").eq(3).text()) > 0)) {
+          judgePoLeft = judgePoLeft + 1;
+        }
+      }
+      
+      $("#skuTotalLeftNum").text(skuTotalPlanNum - totalDoneNum);
+      
+      if (judgePoLeft || (skuTotalPlanNum - totalDoneNum <= 0 && arrRowLeft.filter(v => v > 0).length > 0)) {
+        $("#swalRemind").text("PO必须一个一个清；PO收货与输入必须同步");
+      }
+    }
+  }
+
+  /**
+   * 显示带有条形码和详情的 PO 弹窗
+   * @param {HTMLElement} obj - 包含 PO 的 DOM 元素
+   * @param {number} trSeq - 行号索引
+   */
+  function showSwalPo(obj, trSeq) {
+    let tbody = $("#tbodydisplay");
+    let html = '<p><svg id="BarcodeDIV" style="display: inline-block"></svg></p>';
+    Swal.fire({
+      showConfirmButton: false,
+      title: '<b style="color:green">' + tbody.find("tr").eq(trSeq).find("td").eq(4).text() + "<br>" + tbody.find("tr").eq(trSeq).find("td").eq(6).text() + '</b>',
+      html: html,
+      footer: '<p style="color:red;margin-bottom:0">' + tbody.find("tr").eq(trSeq).find("td").eq(7).text() + '</p>'
+    });
+    JsBarcode("#BarcodeDIV", $(obj).text());
+  }
+
+  /**
+   * 直配时机台与成品选择联动计算
+   */
+  $("#ctMachine,#ctSku,#ctActOut").on("change", function() {
+    let ctMachine = $("#ctMachine").val();
+    let ctSku = $("#ctSku").val();
+    let ctActOut = $("#ctActOut").val();
+    
+    if (ctMachine && ctSku && ctActOut) {
+      let arrTemp = arrDirectDeliveryOutTimeInfo.filter(v => v[0] + v[1] == ctMachine + ctSku);
+      if (arrTemp.length > 0) {
+        $("#ctStandardOut").val(arrTemp[0][2]);
+        $("#ctStandardTime").val(arrTemp[0][3]);
+        $("#ctActTime").val(Math.round(ctActOut / arrTemp[0][2] * arrTemp[0][3] * 100) / 100);
+      }
+    }
+  });
+  
+  /**
+   * 自动将 PO 等信息转换成一维条码列表展示
+   * @param {string} PO - PO编号文本
+   * @param {string} DES - 描述信息
+   * @param {string} SKU - SKU
+   * @param {string} MACHINE - 机器编码
+   * @param {string} POINFO - 订单信息（拼接）
+   * @param {string} LASTORDERINFO - 尾单信息
+   */
+  function showPOQRCode(PO, DES, SKU, MACHINE, POINFO, LASTORDERINFO) {
+    console.log(PO, LASTORDERINFO);
+    let arrPo = PO.split("<br>");
+    let arrPoInfo = POINFO.split("|");
+    console.log(arrPo);
+    
+    let html = "";
+    let formatStrPoInfo = "";
+    for (let i = 0; i < arrPo.length; i++) {
+      if (arrPoInfo[i]) {
+        formatStrPoInfo = arrPoInfo[i].replace(/原订单量：(.*)；已交货量：(.*)；剩余量：(.*)；数据更新于：(.*)/, '原订单量：<b style="color:cyan">$1</b>；已交货量：<b style="color:blue">$2</b>；剩余量：<b style="color:red">$3</b>；数据更新于：<b style="color:magenta">$4</b>');
+      } else {
+        formatStrPoInfo = "";
+      }
+      html = html + '<p>' + formatStrPoInfo + '</p><p style="color:red;font-size:24px">' + LASTORDERINFO + '</p><p><svg id="BarcodeDIV' + i + '" style="display: inline-block"></svg></p>';
+    }
+    
+    Swal.fire({
+      width: '80vw',
+      showConfirmButton: false,
+      title: '<b style="color:green">' + MACHINE + "<br>" + SKU + '</b>',
+      html: html,
+      footer: '<p style="color:red;margin-bottom:0">' + DES + '</p>'
+    });
+    
+    for (let i = 0; i < arrPo.length; i++) {
+      JsBarcode("#BarcodeDIV" + i, arrPo[i].toString());
+    }
+  }
+  
+  /**
+   * 弹出底部的系统导航菜单模态框
+   */
+  $("#btnshow").click(function () {
+    $("#showModal").animate({ height: "show" }, 500);
+    $("#modalOuter").show();
+  });
+
+  /**
+   * 点击深色遮罩层隐藏所有弹出层
+   */
+  $("#modalOuter").click(function () {
+    $("#showModal").animate({ height: "hide" }, 500);
+    $("#showModalCalcTime").animate({ height: "hide" }, 500);
+    $("#showModalCalcSARM").animate({ height: "hide" }, 500);
+    $("#showModalCalcRETU").animate({ height: "hide" }, 500);
+    $("#showModalViewEditRETU").animate({ height: "hide" }, 500);
+    $(this).hide();
+  });
+
+  /*============显示【机台模态框】时加载数据============*/
+  $("#modalViewPlan").on('show.bs.modal', function(e) {
+    let modalViewMachine = $("#modalViewMachine").val();
+    if (modalViewMachine != "") {
+      let todayDate = dayjs($("#todayDate").val()).format("YYYYMMDD").toString();
+      let todayShift = $("#todayShift").val(); 
+      modaViewMachinePlan(todayDate, todayShift, modalViewMachine);
+    } else {
+      return false;
+    }
+  });
+
+  /**
+   * 在模态框机台输入栏双击重新搜索单台
+   */
+  $("#modalViewMachine").on("dblclick", function() {
+    let modalViewMachine = $("#modalViewMachine").val();
+    if (modalViewMachine != "") {
+      let todayDate = dayjs($("#todayDate").val()).format("YYYYMMDD").toString();
+      let todayShift = $("#todayShift").val(); 
+      modaViewMachinePlan(todayDate, todayShift, modalViewMachine);
+    } else {
+      return false;
+    }
+  });
+
+  /**
+   * 模态框内的指定机台计划加载核心函数
+   * @param {string} todayDate - 今天的纯数字日期格式
+   * @param {string} todayShift - 早/中/夜班次
+   * @param {string} modalViewMachine - 指定筛选的机台
+   */
+  function modaViewMachinePlan(todayDate, todayShift, modalViewMachine) {
+    Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在获取计划……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>' });
+    
+    let txtPlan = sessionStorage.getItem("sSAllPlan");
+    let arrPlan = JSON.parse(txtPlan);
+    let arrData = arrPlan.filter(function(x) { return x[4] == modalViewMachine; });
+    
+    $("#modaltabdisplay tr:not(:first)").empty("");
+    let todayDateShift = "";
+    if (todayShift == "早") { todayDateShift = todayDate + 2; } 
+    else if (todayShift == "中") { todayDateShift = todayDate + 3; } 
+    else if (todayShift == "夜") { todayDateShift = todayDate + 1; }
+    
+    let table = $("#modaltbodydisplay");
+    for (let k = 0; k < arrData.length; k++) {
+      let tempDateShift = "";
+      let tempDate = dayjs(arrData[k][2]).format("YYYYMMDD").toString();
+      if (arrData[k][3] == "早") { tempDateShift = tempDate + 2; } 
+      else if (arrData[k][3] == "中") { tempDateShift = tempDate + 3; } 
+      else if (arrData[k][3] == "夜") { tempDateShift = tempDate + 1; }
+      
+      let tempBackgroundColor = "white";
+      if (Number(tempDateShift) < Number(todayDateShift)) { tempBackgroundColor = "#B8B8B8"; }
+      
+      let addRowStr = "<tr>" +
+                      "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][0] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][1] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][2] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][3] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][4] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][5] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][6] + "</td>" +
+                      "<td style='font-size:12px;text-align:center'>" + arrData[k][7] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][8] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][9] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][10] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][11] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][12] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][13] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][14] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][15] + "</td>" +
+                      "<td style='font-size:12px;text-align:center;background-color:yellow'>" + arrData[k][16] + "</td>" +
+                    "</tr>";
+      table.append(addRowStr);
+    }
+    
+    let rows = arrData.length;
+    $("#modaldivScroll").scrollTop(rows * 60);
+    $("#modaldivScroll").scrollLeft(18 * 300);
+    Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: "计划获取成功", showConfirmButton: false, timer: 1500 });
+  }
+  
+  /**
+   * 模态框双击记录重查编组计划
+   */
+  $("#modaltbodydisplay").on("dblclick", "tr", function() {
+    let trSeq = $(this).index();
+    let table = $("#modaltbodydisplay");
+    let viewDate = dayjs(table.find("tr").eq(trSeq).find("td").eq(2).text()).format("YYYY-MM-DD");
+    let viewShift = table.find("tr").eq(trSeq).find("td").eq(3).text();
+    let viewMachine = $("#modalViewMachine").val();
+    modalViewGroupPlan(viewDate, viewShift, viewMachine);
+  });
+
+  /**
+   * 获取同系同模机台或特定类型的关联排产
+   * @param {string} modalViewDate - 所在日期
+   * @param {string} modalViewShift - 所在班次
+   * @param {string} modalViewMachine - 指定的机器
+   */
+  function modalViewGroupPlan(modalViewDate, modalViewShift, modalViewMachine) {
+    if (modalViewMachine != "" && modalViewDate != "" && modalViewShift != "") {
+      Swal.fire({ allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在获取计划……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>' });
+      
+      let txtPlan = sessionStorage.getItem("sSAllPlan");
+      let arrPlan = JSON.parse(txtPlan);
+      let arrData = [];
+      let arrDateShiftMachine = arrPlan.map(function(x) { return x[2] + x[3] + x[4]; });
+      let position = arrDateShiftMachine.indexOf(modalViewDate + modalViewShift + modalViewMachine);
+      
+      if (position > -1) {
+        let moldType = arrPlan[position][8];
+        if (modalViewMachine.substr(0, 1) != "S") {
+          arrData = arrPlan.filter(function(x) { return x[2] == modalViewDate && x[3] == modalViewShift && x[8] == moldType; });
+        }
+      }
+      
+      $("#modaltabdisplay tr:not(:first)").empty("");
+      let modalDate = dayjs($("#modalViewDate").val()).format("YYYYMMDD").toString();
+      let modalDateShift = "";
+      
+      if (modalViewShift == "早") { modalDateShift = modalDate + 2; } 
+      else if (modalViewShift == "中") { modalDateShift = modalDate + 3; } 
+      else if (modalViewShift == "夜") { modalDateShift = modalDate + 1; }
+      
+      let table = $("#modaltbodydisplay");
+      for (let k = 0; k < arrData.length; k++) {
+        let tempDateShift = "";
+        let tempDate = dayjs(arrData[k][2]).format("YYYYMMDD").toString();
+        if (arrData[k][3] == "早") { tempDateShift = tempDate + 2; } 
+        else if (arrData[k][3] == "中") { tempDateShift = tempDate + 3; } 
+        else if (arrData[k][3] == "夜") { tempDateShift = tempDate + 1; }
+        
+        let tempBackgroundColor = "white";
+        if (Number(tempDateShift) < Number(modalDateShift)) { tempBackgroundColor = "#B8B8B8"; }
+        
+        let addRowStr = "<tr>" +
+                        "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][0] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][1] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][2] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][3] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][4] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][5] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][6] + "</td>" +
+                        "<td style='font-size:12px;text-align:center'>" + arrData[k][7] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][8] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][9] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "'>" + arrData[k][10] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][11] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][12] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][13] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][14] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrData[k][15] + "</td>" +
+                        "<td style='font-size:12px;text-align:center;background-color:yellow'>" + arrData[k][16] + "</td>" +
+                      "</tr>";
+        table.append(addRowStr);
+      }
+      let rows = arrData.length;
+      $("#modaldivScroll").scrollTop(rows * 60);
+      $("#modaldivScroll").scrollLeft(18 * 300);
+      Swal.fire({ allowOutsideClick: false, icon: 'success', title: '提醒', text: "计划获取成功", showConfirmButton: false, timer: 1500 });
+    } else {
+      return false;
+    }
+  }
+  
+  /**
+   * 页面操作说明展示（在表头上双击弹出教学图片）
+   */
+  $("#theadDisplay").on("dblclick", function() {
+    console.log("页面操作说明");
+    Swal.fire({
+      width: '650px',
+      title: '页面操作说明',
+      html: `<img src="https://lh3.googleusercontent.com/u/0/d/12lH0ikmH6i7jYsMxqJQsrt9Z1SET0QWs" alt="图片加载中……" style="width:100%;height:auto;">`,
+    });
+  });
+
+  /**
+   * 跳转【计划状态】监控页面
+   */
+  function planStatus() {
+    window.open("https://script.google.com/a/colpal.com/macros/s/AKfycbxrbR-FYqIFt6LcJN3QY1lUvCDcB3-OO_q3MUOxDw/exec");
+  }
+
+  /**
+   * 跳转【问题标签】打标页面
+   */
+  function problemTag() {
+     window.open('https://script.google.com/a/colpal.com/macros/s/AKfycbx1dSXqR5aBv8dq1FAXj1Wf37BOhRsEtB1OnWN2/exec?v=Submit' +
+                 '&paraTemp1=' + $("#viewId").val() +
+                 '&paraTemp2=' + $("#viewName").val() +
+                 '&paraTemp3=问题标签');
+  }
+  
+  /**
+   * 跳转【红单】提交页面
+   */
+  function hongdan() {
+     window.open('https://script.google.com/a/colpal.com/macros/s/AKfycbx1dSXqR5aBv8dq1FAXj1Wf37BOhRsEtB1OnWN2/exec?v=Submit' +
+                 '&paraTemp1=' + $("#viewId").val() +
+                 '&paraTemp2=' + $("#viewName").val() +
+                 '&paraTemp3=红单');
+  }
+
+  /**
+   * 跳转【AM小组会议】工具页面
+   */
+  function amGroupMeeting() {
+    let viewId = $("#viewId").val();
+    let viewName = $("#viewName").val();
+    let viewMachine = $("#viewMachine").val();
+    let viewProcess = "INJ";
+    
+    if (viewId && viewName && viewMachine) {
+      let viewWs = "";
+      if (viewMachine.substring(1, 2) == "0" || viewMachine.substring(1, 2) == "1") { viewWs = "TB1"; } 
+      else { viewWs = "TB2"; }
+      
+      console.log("viewId=%s,viewName=%s,viewWs=%s", viewId, viewName, viewWs);
+      window.open('https://script.google.com/a/colpal.com/macros/s/AKfycbwl3kdB0XdzIN2LJVbEM5IOJcSUeTwMcqnobNTgOA/exec?autoLogin=AmLoginAuto' +
+                    '&loginId=' + viewId +
+                    '&loginName=' + viewName +
+                    '&loginWs=' + viewWs +
+                    '&loginProcess=' + viewProcess);
+    } else {
+      Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: "请选择当前车间任意一个机台……", showConfirmButton: true });
+    }
+  }
+
+  /**
+   * 跳转【培训系统】查看入口
+   */
+  function trainingSystem() {
+    window.open('https://script.google.com/a/colpal.com/macros/s/AKfycby5-Wo21A1Fxe2PY7hbGIVW6CfoRc6jWfVxnAv8Gw/exec?' +
+                '&sapcode=' + sessionStorage.getItem('viewId') +
+                '&sapname=' + sessionStorage.getItem('viewName'));
+  }
+
+  /**
+   * 跳转【5S&W 查询】页面
+   */
+  function view5SW() {
+    window.open('https://script.google.com/a/colpal.com/macros/s/AKfycbx1dSXqR5aBv8dq1FAXj1Wf37BOhRsEtB1OnWN2/exec?v=ViewFPR_5S_W' +
+                 '&paraTemp1=' + $("#viewId").val() + "【" + $("#viewName").val() + "】" +
+                 '&paraTemp2=noPara' +
+                 '&paraTemp3=' + $("#viewMachine").val());
+  }
+
+  /**
+   * 跳转【CSX AM Dashboard】视图页面
+   */
+  function csxAmDashboard() {
+    window.open('https://script.google.com/a/colpal.com/macros/s/AKfycbxgPpgzDG66S4DNU7dpZhyVUC25PALokx5bjLN2DQ/exec');
+  }
+
+  /**
+   * 跳转【维护保养计划 (PM)】页面
+   */
+  function edsPmPlan() {
+    let intoWebLoginId = $("#viewId").val();
+    let intoWebLoginName = $("#viewName").val();
+    let intoWebLoginType = "OPC";
+    let intoWebUrl = 'https://script.google.com/a/colpal.com/macros/s/AKfycbyaQjG5yFGYxU825DrODhSLl2bdfbYKpqAH4qOIzKoTJ4b-5qU/exec';
+    window.open('https://script.google.com/a/colpal.com/macros/s/AKfycbyaQjG5yFGYxU825DrODhSLl2bdfbYKpqAH4qOIzKoTJ4b-5qU/exec?v=PM_Plan&webPage=' + intoWebUrl + '&intoWebID=' + intoWebLoginId + '&intoWebName=' + intoWebLoginName + '&intoWebType=' + intoWebLoginType);
+  }
+
+  /**
+   * 跳转【EDS 点检】执行页面
+   */
+  function edsPointCheck() {
+    let intoWebLoginId = $("#viewId").val();
+    let intoWebLoginName = $("#viewName").val();
+    let intoWebLoginType = "OPC";
+    let intoWebUrl = 'https://script.google.com/a/colpal.com/macros/s/AKfycbyaQjG5yFGYxU825DrODhSLl2bdfbYKpqAH4qOIzKoTJ4b-5qU/exec';
+    window.open('https://script.google.com/a/colpal.com/macros/s/AKfycbyaQjG5yFGYxU825DrODhSLl2bdfbYKpqAH4qOIzKoTJ4b-5qU/exec?v=PointCheck&webPage=' + intoWebUrl + '&intoWebID=' + intoWebLoginId + '&intoWebName=' + intoWebLoginName + '&intoWebType=' + intoWebLoginType);
+  }
+  
+  /**
+   * 跳转【培训材料】云盘地址
+   */
+  function trainingMaterials() {
+    window.open("https://drive.google.com/drive/folders/16RfYqOi-fsfNLG8dHrc9bpGORDwEc4vO");
+  }
+
+  /**
+   * 跳转【时间运算】通用工具
+   */
+  function timeOperation() {
+    window.open("https://script.google.com/a/colpal.com/macros/s/AKfycbyTvmlDfZOYKa7qccs1EDoJcTD1hmy_w0j7NqlxDA/exec");
+  }
+
+  /**
+   * 跳转【通用交接班汇总表格】
+   */
+  function groupHandOver() {
+    window.open("https://docs.google.com/spreadsheets/d/1U4pISJpqvlu_8FTx9KYy8pu-hXXkdxO-s1RbNpyIH_o/edit#gid=513674506");
+  }
+  
+  /**
+   * 跳转【生产注意点】云盘文件夹，自动区分 TB1 与 TB2 车间
+   */
+  function productionAttentionPoint() {
+    let viewMachine = $("#viewMachine").val();
+    if (viewMachine != "") {
+      let tempInfo = viewMachine.charAt(1);
+      let workshop = "";
+      if (tempInfo == "0" || tempInfo == "1") {
+        workshop = "TB1";
+        window.open("https://drive.google.com/drive/folders/1vjQeAuiq3UmYLG0Ao1wTaB_F3_RMSxpQ");
+      } else if (tempInfo == "2") {
+        workshop = "TB2";
+        window.open("https://drive.google.com/drive/folders/1F38hjUK8TDAyYlt_boqO1AfB9b6a4XR_");
+      }
+    } else {
+      Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: "请选择当前车间任意一个机台……", showConfirmButton: true });
+    }
+  }
+  
+  /**
+   * 跳转【安全信息沟通 (EOHS)】Slides 演示链接
+   */
+  function eohsInfoCommunicate() {
+    let viewMachine = $("#viewMachine").val();
+    if (viewMachine != "") {
+      let tempInfo = viewMachine.charAt(1);
+      let workshop = "";
+      if (tempInfo == "0" || tempInfo == "1") {
+        workshop = "TB1";
+        window.open("https://docs.google.com/presentation/d/1KVNG3RJdFXPgasPBvSaGADqt4wjZ3F20EpgQfqL4YLg/edit#slide=id.g77e1724e3b_0_8");
+      } else if (tempInfo == "2") {
+        workshop = "TB2";
+        window.open("https://docs.google.com/presentation/d/1hwdFIL5Rc1A0r9_U6KAWrmAw8qOyj5Z6IlINWEI1djQ/edit#slide=id.g77e1724e3b_0_8");
+      }
+    } else {
+      Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: "请选择当前车间任意一个机台……", showConfirmButton: true });
+    }
+  }
+  
+  /**
+   * 跳转【人员安排表】云盘地址（原版业务保留）
+   */
+  function staffArrange() {
+    let viewMachine = $("#viewMachine").val();
+    if (viewMachine != "") {
+      let tempInfo = viewMachine.charAt(1);
+      let workshop = "";
+      if (tempInfo == "0" || tempInfo == "1") {
+        workshop = "TB1";
+        window.open("https://drive.google.com/drive/folders/1N66kPzLSD5BKdUDpBvCk3gE3p6XJf-xs");
+      } else if (tempInfo == "2") {
+        workshop = "TB2";
+        window.open("https://drive.google.com/drive/folders/1FAzWJpQ_NMYojdVbXfT47JXD-RJzPdRE");
+      }
+    } else {
+      Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: "请选择任意一个机台……", showConfirmButton: true });
+    }
+  }
+
+  /**
+   * 跳转【工艺随机抽查 (PPMS)】月检视图页面
+   */
+  function ppmsRandomCheck() {
+    let viewMachine = $("#viewMachine").val();
+    if (viewMachine != "") {
+      let tempInfo = viewMachine.charAt(1);
+      let workshop = "TB1";
+      if (tempInfo == "2") {
+        workshop = "TB2";
+      }
+      sessionStorage.setItem("PpmsMonthCheckWs", workshop);
+      window.open(execUrl + "?v=TechPpmsMonthCheck");
+    } else {
+      Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: "请选择任意一个机台……", showConfirmButton: true });
+    }
+  }
+  
+  /**
+   * 跳转【退料登记表】云盘入口
+   */
+  function returnMaterial() {
+    window.open("https://drive.google.com/drive/folders/1rPgFR7IdMzRQAu67h_PDSzzYlc_5myu7");
+  }
+  
+  /**
+   * 跳转【盘点记录】汇总登记页面
+   */
+  function inventoryRecord() {
+    let viewMachine = $("#viewMachine").val();
+    if (viewMachine != "") {
+      let tempInfo = viewMachine.charAt(1);
+      let workshop = "";
+      if (tempInfo == "0" || tempInfo == "1") {
+        workshop = "TB1";
+        window.open("https://script.google.com/a/colpal.com/macros/s/AKfycbxg95mS8DV1yRvIYv0juYODWlqsZ80GATvN6ELb/exec");
+      } else if (tempInfo == "2") {
+        workshop = "TB2";
+        window.open("https://script.google.com/a/colpal.com/macros/s/AKfycbxg95mS8DV1yRvIYv0juYODWlqsZ80GATvN6ELb/exec");
+      }
+    } else {
+      Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: "请选择任意一个机台……", showConfirmButton: true });
+    }  
+  }
+  
+  /**
+   * 跳转【试生产记录 (Trial Prod)】录入页面
+   */
+  function trialProd() {
+    let viewId = $("#viewId").val();
+    let viewName = $("#viewName").val();
+    let viewMachine = $("#viewMachine").val();
+    
+    if (viewId && viewName && viewMachine) {
+      let viewWs = "";
+      if (viewMachine.substring(1, 2) == "0" || viewMachine.substring(1, 2) == "1") { viewWs = "TB1"; } 
+      else { viewWs = "TB2"; }
+      
+      console.log("viewId=%s,viewName=%s,viewWs=%s", viewId, viewName, viewWs);
+      window.open("https://script.google.com/a/colpal.com/macros/s/AKfycbxxe4VCiDXbcCgU-j6RMNkvDxlNfwDd5VYmhXHpGzE9CXvfZhQF/exec?intoWebID=" + viewId + "&intoWebName=" + viewName + "&intoWebWs=" + viewWs);
+    } else {
+      Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: "请选择当前车间任意一个机台……", showConfirmButton: true });
+    }
+  }
+
+  /**
+   * 跳转【停机检查 (End Shift Check)】表单链接
+   */
+  function endShiftCheck() {
+    window.open("https://script.google.com/a/macros/colpal.com/s/AKfycbwh8l5Ks7vs11xUIge5hgEbZv4mJkrxeIhWajCWRmaPH_Zwmc06e-nNDLJ9SgSXCbDI-A/exec");
+  }
+  
+  /**
+   * 跳转【油墨信息登记 / 异常汇总】共享表格
+   */
+  function shiftOutputAbnormal() {
+    let viewMachine = $("#viewMachine").val();
+    if (viewMachine != "") {
+      let tempInfo = viewMachine.charAt(1);
+      let workshop = "";
+      if (tempInfo == "0" || tempInfo == "1") {
+        workshop = "TB1";
+        window.open("https://docs.google.com/spreadsheets/d/1bF3y-_yBb8Rmh5g8365lwnjZPzNepuyyd3snQZAshrE/");
+      } else if (tempInfo == "2") {
+        workshop = "TB2";
+        window.open("https://docs.google.com/spreadsheets/d/1DVEtbvc0J_VEcr4iaiLCiRZurZrVzbLnjgGqnktPVLk/");
+      }
+    } else {
+      Swal.fire({ allowOutsideClick: false, icon: 'error', title: '提醒', text: "请选择任意一个机台……", showConfirmButton: true });
+    }
+  }
+  
+  /**
+   * 跳转【三轴机器故障统计】表格
+   */
+  function threeAixMdtTotal() {
+    window.open("https://script.google.com/a/macros/colpal.com/s/AKfycbzxhlRfHqekUZf0jVqGB4q2JjQgjC289T0oKqq0nhZEJN2FoOfDsKopGHAnkMh3fiNZTw/exec");
+  }
+
+  /**
+   * 跳转【废品统计登记】系统表单
+   */
+  function scrapTotal() {
+    window.open("https://script.google.com/a/macros/colpal.com/s/AKfycbwWlmRbK1emTAQoA2BEUEASpvJgtwifkpjE4S8y5h0jOAicOTeL4osqOIM-IgtDjtgg/exec");
+  }
+
+  /**
+   * 跳转【培训操作文档 (TOD)】搜索索引入口
+   */
+  function todView() {
+    let viewId = $("#viewId").val();
+    let viewName = $("#viewName").val();
+    let viewProcess = "";
+    window.open("https://script.google.com/a/colpal.com/macros/s/AKfycbzzv6PHu-AaqAL1fwLNZPNg30acgO4Xd4H5atps/exec?ALP=ViewTod&viewSapId=" + viewId + "&viewName=" + viewName + "&viewProcess=" + viewProcess + "&viewSource=INJPAD");
+  }
+  
+  /**
+   * 判定特定月份一号是否需要备份系统数据
+   * @param {Array} arrMonth - 触发备份的月份数组
+   * @returns {string} - "Y" 或 "N"
+   */
+  function backupFrequency(arrMonth) {
+    let now = new Date();
+    let tomorrow = dayjs().add(1, 'days').format("YYYY-MM-DD");
+    let tomorrowMonth = new Date(tomorrow).getMonth() + 1;
+    let tomorrowDate = new Date(tomorrow).getDate();
+    let nowHour = now.getHours();
+    let nowMinute = now.getMinutes();
+    let position = arrMonth.indexOf(tomorrowMonth);
+    
+    // 如果明日是目标备份月份的 1号，并且今晚已经超过 23:45 触发拦截图限制
+    if (position != -1 && tomorrowDate == 1 && nowHour == 23 && nowMinute > 44) {
+      return "Y";
+    } else {
+      return "N";
+    }
+  }
+
+  /**
+   * 自动生成带特定样式的 HTML 表格进行展示
+   * @param {Array} data - 需要渲染的数据二维数组
+   * @param {Number} scale - 宽度百分比
+   * @param {string} type - 如果等于 PointCheckInfo，会带特定跑马灯特效
+   * @returns {string} 拼装好的 HTML 表格代码
+   */
+  function General_Htmltable(data, scale, type) {
+    let htmltable = "";
+    if (data) {
+      if (type == "PointCheckInfo") {
+        htmltable += "<div style='color:red;font-size:medium'><marquee direction='right' scrollamount='5' behavior='alternate'>该机台及配套机台需要做以下类型的点检</marquee></div>";
+      }
+      let arrWidths = [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 20];
+      htmltable += "<table border='1' style='table-layout:fixed;border-collapse:separate;font-size:small;color:red;width:" + scale + "%;'>";
+      for (let i = 0; i < data.length; i++) {
+        htmltable += "<tr>";
+        for (let j = 0; j < data[i].length; j++) {
+          if (i == 0) {
+            htmltable += "<td style=';text-align:center;background-color:#CCFFFF;color:black;font-weight:bold;width:" + arrWidths[j] + "%'>" + data[i][j].toString().replace(/\n/g, "<br>") + "</td>";
+          } else if (i > 0 && i % 2 == 0) {
+            if (data[i][j] && data[i][j].toString().indexOf("不在范围") != -1) {
+              htmltable += "<td style=';text-align:center;background-color:#E8E8E8'><a>不在范围</a><a style='color:#E8E8E8'>" + data[i][j].toString().replace(/\n/g, "<br>") + "</a></td>";
+            } else {
+              htmltable += "<td style=';text-align:center;background-color:#E8E8E8'>" + data[i][j].toString().replace(/\n/g, "<br>") + "</td>";
+            }
+          } else {
+            if (data[i][j] && data[i][j].toString().indexOf("不在范围") != -1) {
+              htmltable += "<td style=';text-align:center;'><a>不在范围</a><a style='color:white'>" + data[i][j].toString().replace(/\n/g, "<br>") + "<a></td>";
+            } else {
+              htmltable += "<td style=';text-align:center'>" + data[i][j].toString().replace(/\n/g, "<br>") + "</td>";
+            }
+          }
+        }
+        htmltable += "</tr>";
+      }
+      htmltable += "</table>";
+    }
+    return htmltable;
+  }
+
+  /*=================================================
+   * 【隐藏彩蛋】：双击刷新图标，强制拉取最新 BOM/工艺标准
+   *=================================================*/
+  $(document).on("dblclick", "#btnForceSyncData", function(e) {
+    e.preventDefault(); // 阻止默认选中文本行为
+    
+    Swal.fire({
+      title: '强制更新主数据?',
+      text: "这将会清空本地缓存，并重新从服务器拉取最新的排产、BOM和工艺标准，确定执行吗？",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#6c757d',
+      confirmButtonText: '确定更新',
+      cancelButtonText: '取消'
+    }).then(async (result) => { // 【核心修改】：加上 async，让我们可以等待断开连接
+      if (result.isConfirmed) {
+
+        // 先弹出一个不可关闭的加载中遮罩，防止用户中途乱点
+        Swal.fire({
+          title: '正在深度清理本地缓存...',
+          allowOutsideClick: false,
+          didOpen: () => { Swal.showLoading() }
+        });
+
+        // 1. 直接干掉本地的“保质期戳”，确保证明已过期
+        localStorage.removeItem("staticDataExpireTime");
+        
+        // 【终极修复】：在粉碎数据库之前，必须先主动切断当前页面一直保持开启的数据库连接！
+        if (typeof dbPromise !== 'undefined' && dbPromise !== null) {
+          try {
+            let db = await dbPromise;
+            db.close(); // 释放当前页面的占用锁
+            dbPromise = null;
+          } catch (err) { console.warn("关闭当前DB连接出错", err); }
+        }
+
+        // 2. 暴力粉碎整个 cp_app_db 数据库
+        let deleteReq = indexedDB.deleteDatabase("cp_app_db");
+
+        // 必须等数据库彻底删完（onsuccess），再进行页面刷新！
+        deleteReq.onsuccess = function() {
+          console.log("IndexedDB 本地大数据库已被彻底粉碎清空！");
+          Swal.fire({
+            allowOutsideClick: false,
+            title: '清理完毕',
+            text: '正在重启系统拉取最新数据...',
+            icon: 'success',
+            timer: 1200,
+            showConfirmButton: false
+          }).then(() => {
+            // 确保旧的 IndexedDB 死透了，再强刷当前页面
+            window.location.reload();
+          });
+        };
+
+        deleteReq.onerror = function() {
+          console.error("清除 IndexedDB 失败");
+          Swal.fire('清理失败', '缓存清除失败，请手动清理浏览器缓存！', 'error');
+        };
+
+        // 工业级防呆：如果用户开了两个该系统的网页，IndexedDB 会被死锁拦截
+        deleteReq.onblocked = function () {
+          console.warn("数据库删除被拦截：有其他标签页正在使用数据库。");
+          Swal.fire({
+            icon: 'warning', 
+            title: '清理被拦截', 
+            html: '发现您还在其他标签页打开了本系统。<br><br><b>请先关闭其他浏览器的系统标签页</b>，然后再点击清理重试！'
+          });
+        };
+      }
+    });
+  });
+  
+</script>

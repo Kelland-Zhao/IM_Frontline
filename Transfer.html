@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ch">
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <?!=include("bootstrap_4.5.3_css");?>
+    <?!=include("bootstrap_datepicker_1.9.0_css");?>
+    <?!=include("bootstrap_select_1.13.18_css");?>
+    <?!=include("jquery_ui_1.12.1_css");?>
+    <?!=include("limonte_sweetalert2_11.4.4_css");?>
+    <?!=include("fontawesome_4.5_js");?>
+    <?!=include("CSS");?>
+  </head>
+  <body>
+    <div class="container" style="margin-top:10px">
+      <h1 class="text-center" style="background-color:rgb(218,41,28);color:white;padding:10px">
+        <?=title;?>
+      </h1>
+    </div>
+    
+    <div class="container" style="margin-top:10px">
+      <div class="card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px">
+
+        <div class="row" style="margin-bottom: 0px;">
+          <div class="col-1" style="margin-top: 0px;">
+            <label for="usernameID" style="color: black;font-size: small">姓名</label>
+            <input id="usernameID" type="text" class="form-control" value="XX" style="font-size: small;color: black;" disabled>
+          </div>
+          
+          <div class="col-1" style="margin-top: 0px;">
+            <label for="SAPCodeID" style="color: black;font-size: small">工号</label>
+            <input id="SAPCodeID" type="text" class="form-control" value="XXXXXXXX" style="font-size: small;color: black;" disabled>
+          </div>
+          
+          <div class="col-2" style="margin-top: 0px;">
+            <label for="materialInputID" style="color: black;font-size: small">SKU</label>
+            <input id="materialInputID" type="text" class="form-control" style="font-size: small;color: black;">
+          </div>
+          
+          <div class="col-2" style="margin-top: 0px;">
+            <label for="lineInputId" style="color: black;font-size: small">机台</label>
+            <input id="lineInputId" type="text" class="form-control" style="font-size: small;color: black;">
+          </div>
+          
+          <div class="col-1" style="margin-top: 0px;">
+            <label for="displayBOMButtonID" style="color: black;font-size: small">　</label>
+            <button id="displayBOMButtonID" class="form-control btn btn-sm btn-primary" style="font-size: 12px;">显示</button>
+          </div>
+          
+          <div class="col-1 offset-3" style="margin-top: 0px">
+            <label for="approveBOMButtonID" style="color: black;font-size: small">　</label>
+            <button id="approveBOMButtonID" class="form-control btn btn-sm btn-danger" style="font-size: 12px;">审批</button>
+          </div>
+        </div>
+        
+        <div class="row" style="margin-top:20px">
+          <div class="col">
+            <div id="divScroll" class="frozenTableR" style="height: calc(100vh - 200px); overflow-y: auto;">
+              <table id="BOMDisplayTableID" cellspacing="0" align="center" style="table-layout:fixed;width:100%;font-size:12px;word-break:break-all">
+                <thead>
+                  <tr style="height:60px;font-family: Roboto sans-serif;border:black; background-color: whitesmoke">
+                    <th style="text-align:center;width:10%">BOM编号</th>
+                    <th style="text-align:center;width:10%">取代编号</th>
+                    <th style="text-align:center;width:23%">描述</th>
+                    <th style="text-align:center;width:8%">自动模</th>
+                    <th style="text-align:center;width:8%">类型</th>
+                    <th style="text-align:center;width:8%">状态</th>
+                    <th style="text-align:center;width:15%">转换日期</th>
+                    <th style="text-align:center;width:0%;display:none">链接</th>
+                    <th style="text-align:center;width:10%">申请审批</th>
+                    <th style="text-align:center;width:8%">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="BOMDisplayTableBodyID"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      
+      </div>
+    </div>
+ 
+    <?!=include("core_2.6.11_js");?>
+    <?!=include("compress_1.1.1_js");?>
+    <?!=include("limonte_sweetalert2_11.4.4_js");?>
+    <?!=include("jquery_3.5.1_js");?>
+    <?!=include("dayjs_1.10.4_js");?>
+    <?!=include("moment_2.29.1_js");?>
+    <?!=include("popper_1.16.1_js");?>
+    <?!=include("bootstrap_4.5.3_js");?>
+    <?!=include("bootstrap_datepicker_1.9.0_js");?>
+    <?!=include("bootstrap_datepicker_zh_cn_1.9.0_js");?>
+    <?!=include("bootstrap_select_1.13.18_js");?>
+    <?!=include("TransferScript");?>   
+  </body>
+</html>

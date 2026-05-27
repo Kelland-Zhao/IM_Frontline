@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ch">
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <?!=include("bootstrap_4.5.3_css");?>
+    <?!=include("bootstrap_datepicker_1.9.0_css");?>
+    <?!=include("bootstrap_select_1.13.18_css");?>
+    <?!=include("jquery_ui_1.12.1_css");?>
+    <?!=include("limonte_sweetalert2_11.4.4_css");?>
+    <?!=include("fontawesome_4.5_js");?>
+    <?!=include("CSS");?>
+  </head>
+  <body>
+    <div class="container" style="margin-top:10px">
+      <h1 class="text-center" style="background-color:rgb(218,41,28);color:white;padding:10px">
+        <?=title;?>
+      </h1>
+    </div>
+    
+    <div class="container" style="margin-top:10px">
+      <div class="card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px">
+        <div class="row">
+          <div class="col-2" style="padding-right:2px">
+            <label for="collectionDateShift" style="font-size:small">收集日期班次</label>
+            <input class="form-control" id="collectionDateShift" type="text" style="text-align:center;background-color:unset;font-size:small" placeholder="" disabled>
+          </div>
+          <div class="col-1" style="padding-left:2px">
+            <label for="collectionMachine" style="font-size:small">机台号</label>
+            <input class="form-control" id="collectionMachine" type="text" style="text-align:center;background-color:unset;font-size:small" placeholder="" disabled>
+          </div>
+          <div class="col-1">
+            <label for="collectionName" style="font-size:small">收集人</label>
+            <input class="form-control" id="collectionName" type="text" style="text-align:center;background-color:unset;font-size:small" placeholder="" disabled>
+          </div>
+          <div class="col-2">
+            <label for="collectionMoldModel" style="font-size:small">模具号</label>
+            <input class="form-control" id="collectionMoldModel" type="text" style="text-align:center;background-color:unset;font-size:small" placeholder="" disabled>
+          </div>
+          <div class="col-2">
+            <label for="collectionMoldPlate" style="font-size:small">模具铭牌</label>
+            <input class="form-control" id="collectionMoldPlate" type="text" style="text-align:center;background-color:unset;font-size:small" value="" placeholder="暂不用输" disabled>
+          </div>
+          <div class="col-2">
+            <label for="collectionSKU" style="font-size:small">SKU</label>
+            <input class="form-control" id="collectionSku" type="text" style="text-align:center;background-color:unset;font-size:small" placeholder="" disabled>
+          </div>
+          <div class="col-2">
+            <label for="collectionDes" style="font-size:small">产品描述</label>
+            <input class="form-control" id="collectionDes" type="text" style="text-align:center;background-color:unset;font-size:small" placeholder="" disabled>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="container" style="margin-top:10px">
+      <div class="card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px">
+        
+        <div class="row">
+          <div class="col">
+            <h6>外观</h6>
+          </div>
+        </div>
+        
+        <div id="divRadioFinalMoldAppearanceStatus" class="row">
+          <div class="col">
+            <table id="radioFinalMoldAppearanceTableID" cellspacing="0" border="1px solid" align="center" style="table-layout:fixed;width:100%;font-size:small;word-break:break-all">
+              
+              <tr style="height:30px">
+                <td style="text-align:center;font-size:small;width:8%"><span>第</span><input type="number" style="outline:none;border-top:none;border-left:none;border-right:none;font-size:small;width:50%"><span>穴</span></td>
+                <td style="text-align:center;font-size:small;background:whitesmoke;width:3%">位置</td>
+                <td style="text-align:center;width:4%;border-right:none"><label style="margin-top:10px"><input name="moldPosition1" type="radio" value="颈部"/><span style="font-size:small;text-align:center;height:20px">颈部</span></label></td>
+                <td style="text-align:center;width:4%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition1" type="radio" value="头部"/><span style="font-size:small;text-align:center;height:20px">头部</span></label></td>
+                <td style="text-align:center;width:4%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition1" type="radio" value="柄身"/><span style="font-size:small;text-align:center;height:20px">柄身</span></label></td>
+                <td style="text-align:center;width:4%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition1" type="radio" value="尾部"/><span style="font-size:small;text-align:center;height:20px">尾部</span></label></td>
+                <td style="text-align:center;width:6%;border-left:none"><label style="margin-top:10px"><input name="moldPosition1" type="radio" value="合模线"/><span style="font-size:small;text-align:center;height:20px">合模线</span></label></td>
+                <td style="text-align:center;font-size:small;background:whitesmoke;width:3%">缺陷</td>
+                <td style="text-align:center;width:4%;border-right:none"><label style="margin-top:10px"><input name="moldDefect1" type="radio" value="挫腔"/><span style="font-size:small;text-align:center;height:20px">挫腔</span></label></td>
+                <td style="text-align:center;width:4%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect1" type="radio" value="飞边"/><span style="font-size:small;text-align:center;height:20px">飞边</span></label></td>
+                <td style="text-align:center;width:4%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect1" type="radio" value="糊字"/><span style="font-size:small;text-align:center;height:20px">糊字</span></label></td>
+                <td style="text-align:center;width:4%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect1" type="radio" value="压伤"/><span style="font-size:small;text-align:center;height:20px">压伤</span></label></td>
+                <td style="text-align:center;width:6%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect1" type="radio" value="浇口长"/><span style="font-size:small;text-align:center;height:20px">浇口长</span></label></td>
+                <td style="text-align:center;width:8%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect1" type="radio" value="合模线粗糙"/><span style="font-size:small;text-align:center;height:20px">合模线粗糙</span></label></td>
+                <td style="text-align:center;width:10%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect1" type="radio" value="刷头(顶)针毛刺"/><span style="font-size:small;text-align:center;height:20px">刷头(顶)针毛刺</span></label></td>
+                <td style="text-align:center;width:7%;border-left:none"><textarea style="outline:none;border-top:none;border-left:none;border-right:none;font-size:small;resize:none;height:100%;width:100%" placeholder="其它"></textarea></td>
+              </tr>
+              
+              <tr style="height:30px">
+                <td style="text-align:center;font-size:small"><span>第</span><input type="number" style="outline:none;border-top:none;border-left:none;border-right:none;font-size:small;width:50%"><span>穴</span></td>
+                <td style="text-align:center;font-size:small;background:whitesmoke">位置</td>
+                <td style="text-align:center;border-right:none"><label style="margin-top:10px"><input name="moldPosition2" type="radio" value="颈部"/><span style="font-size:small;text-align:center;height:20px">颈部</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition2" type="radio" value="头部"/><span style="font-size:small;text-align:center;height:20px">头部</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition2" type="radio" value="柄身"/><span style="font-size:small;text-align:center;height:20px">柄身</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition2" type="radio" value="尾部"/><span style="font-size:small;text-align:center;height:20px">尾部</span></label></td>
+                <td style="text-align:center;border-left:none"><label style="margin-top:10px"><input name="moldPosition2" type="radio" value="合模线"/><span style="font-size:small;text-align:center;height:20px">合模线</span></label></td>
+                <td style="text-align:center;font-size:small;background:whitesmoke">缺陷</td>
+                <td style="text-align:center;border-right:none"><label style="margin-top:10px"><input name="moldDefect2" type="radio" value="挫腔"/><span style="font-size:small;text-align:center;height:20px">挫腔</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect2" type="radio" value="飞边"/><span style="font-size:small;text-align:center;height:20px">飞边</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect2" type="radio" value="糊字"/><span style="font-size:small;text-align:center;height:20px">糊字</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect2" type="radio" value="压伤"/><span style="font-size:small;text-align:center;height:20px">压伤</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect2" type="radio" value="浇口长"/><span style="font-size:small;text-align:center;height:20px">浇口长</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect2" type="radio" value="合模线粗糙"/><span style="font-size:small;text-align:center;height:20px">合模线粗糙</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect2" type="radio" value="刷头针(顶)毛刺"/><span style="font-size:small;text-align:center;height:20px">刷头(顶)针毛刺</span></label></td>
+                <td style="text-align:center;width:7%;border-left:none"><textarea style="outline:none;border-top:none;border-left:none;border-right:none;font-size:small;resize:none;height:100%;width:100%" placeholder="其它"></textarea></td>
+              </tr>
+              
+              <tr style="height:30px">
+                <td style="text-align:center;font-size:small"><span>第</span><input type="number" style="outline:none;border-top:none;border-left:none;border-right:none;font-size:small;width:50%"><span>穴</span></td>
+                <td style="text-align:center;font-size:small;background:whitesmoke">位置</td>
+                <td style="text-align:center;border-right:none"><label style="margin-top:10px"><input name="moldPosition3" type="radio" value="颈部"/><span style="font-size:small;text-align:center;height:20px">颈部</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition3" type="radio" value="头部"/><span style="font-size:small;text-align:center;height:20px">头部</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition3" type="radio" value="柄身"/><span style="font-size:small;text-align:center;height:20px">柄身</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition3" type="radio" value="尾部"/><span style="font-size:small;text-align:center;height:20px">尾部</span></label></td>
+                <td style="text-align:center;border-left:none"><label style="margin-top:10px"><input name="moldPosition3" type="radio" value="合模线"/><span style="font-size:small;text-align:center;height:20px">合模线</span></label></td>
+                <td style="text-align:center;font-size:small;background:whitesmoke">缺陷</td>
+                <td style="text-align:center;border-right:none"><label style="margin-top:10px"><input name="moldDefect3" type="radio" value="挫腔"/><span style="font-size:small;text-align:center;height:20px">挫腔</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect3" type="radio" value="飞边"/><span style="font-size:small;text-align:center;height:20px">飞边</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect3" type="radio" value="糊字"/><span style="font-size:small;text-align:center;height:20px">糊字</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect3" type="radio" value="压伤"/><span style="font-size:small;text-align:center;height:20px">压伤</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect3" type="radio" value="浇口长"/><span style="font-size:small;text-align:center;height:20px">浇口长</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect3" type="radio" value="合模线粗糙"/><span style="font-size:small;text-align:center;height:20px">合模线粗糙</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect3" type="radio" value="刷头针(顶)毛刺"/><span style="font-size:small;text-align:center;height:20px">刷头针(顶)毛刺</span></label></td>
+                <td style="text-align:center;border-left:none"><textarea style="outline:none;border-top:none;border-left:none;border-right:none;font-size:small;resize:none;height:100%;width:100%" placeholder="其它"></textarea></td>
+              </tr>
+              
+              <tr style="height:30px">
+                <td style="text-align:center;font-size:small"><span>第</span><input type="number" style="outline:none;border-top:none;border-left:none;border-right:none;font-size:small;width:50%"><span>穴</span></td>
+                <td style="text-align:center;font-size:small;background:whitesmoke">位置</td>
+                <td style="text-align:center;border-right:none"><label style="margin-top:10px"><input name="moldPosition4" type="radio" value="颈部"/><span style="font-size:small;text-align:center;height:20px">颈部</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition4" type="radio" value="头部"/><span style="font-size:small;text-align:center;height:20px">头部</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition4" type="radio" value="柄身"/><span style="font-size:small;text-align:center;height:20px">柄身</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition4" type="radio" value="尾部"/><span style="font-size:small;text-align:center;height:20px">尾部</span></label></td>
+                <td style="text-align:center;border-left:none"><label style="margin-top:10px"><input name="moldPosition4" type="radio" value="合模线"/><span style="font-size:small;text-align:center;height:20px">合模线</span></label></td>
+                <td style="text-align:center;font-size:small;background:whitesmoke">缺陷</td>
+                <td style="text-align:center;border-right:none"><label style="margin-top:10px"><input name="moldDefect4" type="radio" value="挫腔"/><span style="font-size:small;text-align:center;height:20px">挫腔</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect4" type="radio" value="飞边"/><span style="font-size:small;text-align:center;height:20px">飞边</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect4" type="radio" value="糊字"/><span style="font-size:small;text-align:center;height:20px">糊字</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect4" type="radio" value="压伤"/><span style="font-size:small;text-align:center;height:20px">压伤</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect4" type="radio" value="浇口长"/><span style="font-size:small;text-align:center;height:20px">浇口长</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect4" type="radio" value="合模线粗糙"/><span style="font-size:small;text-align:center;height:20px">合模线粗糙</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect4" type="radio" value="刷头针(顶)毛刺"/><span style="font-size:small;text-align:center;height:20px">刷头针(顶)毛刺</span></label></td>
+                <td style="text-align:center;width:7%;border-left:none"><textarea style="outline:none;border-top:none;border-left:none;border-right:none;font-size:small;resize:none;height:100%;width:100%" placeholder="其它"></textarea></td>
+              </tr>
+              
+              <tr style="height:30px">
+                <td style="text-align:center;font-size:small"><span>第</span><input type="number" style="outline:none;border-top:none;border-left:none;border-right:none;font-size:small;width:50%"><span>穴</span></td>
+                <td style="text-align:center;font-size:small;background:whitesmoke">位置</td>
+                <td style="text-align:center;border-right:none"><label style="margin-top:10px"><input name="moldPosition5" type="radio" value="颈部"/><span style="font-size:small;text-align:center;height:20px">颈部</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition5" type="radio" value="头部"/><span style="font-size:small;text-align:center;height:20px">头部</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition5" type="radio" value="柄身"/><span style="font-size:small;text-align:center;height:20px">柄身</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldPosition5" type="radio" value="尾部"/><span style="font-size:small;text-align:center;height:20px">尾部</span></label></td>
+                <td style="text-align:center;border-left:none"><label style="margin-top:10px"><input name="moldPosition5" type="radio" value="合模线"/><span style="font-size:small;text-align:center;height:20px">合模线</span></label></td>
+                <td style="text-align:center;font-size:small;background:whitesmoke">缺陷</td>
+                <td style="text-align:center;border-right:none"><label style="margin-top:10px"><input name="moldDefect5" type="radio" value="挫腔"/><span style="font-size:small;text-align:center;height:20px">挫腔</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect5" type="radio" value="飞边"/><span style="font-size:small;text-align:center;height:20px">飞边</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect5" type="radio" value="糊字"/><span style="font-size:small;text-align:center;height:20px">糊字</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect5" type="radio" value="压伤"/><span style="font-size:small;text-align:center;height:20px">压伤</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect5" type="radio" value="浇口长"/><span style="font-size:small;text-align:center;height:20px">浇口长</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect5" type="radio" value="合模线粗糙"/><span style="font-size:small;text-align:center;height:20px">合模线粗糙</span></label></td>
+                <td style="text-align:center;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldDefect5" type="radio" value="刷头针(顶)毛刺"/><span style="font-size:small;text-align:center;height:20px">刷头针(顶)毛刺</span></label></td>
+                <td style="text-align:center;width:7%;border-left:none"><textarea style="outline:none;border-top:none;border-left:none;border-right:none;font-size:small;resize:none;height:100%;width:100%" placeholder="其它"></textarea></td>
+              </tr>
+            </table>
+          </div>
+        </div>
+        
+        <div class="row" style="margin-top:10px">
+          <div class="col">
+            <h6>生产过程</h6>
+          </div>
+        </div>
+        
+        <div id="divRadioFinalMoldProductStatus" class="row">
+          <div class="col">
+            <table id="radioFinalMoldProductTableID" cellspacing="0" border="1px solid" align="center" style="table-layout:fixed;width:100%;font-size:small;word-break:break-all">
+              <tr style="height:30px">
+                <td style="text-align:center;width:7%;border-right:none"><label style="margin-top:10px"><input name="moldProduct" type="radio" value="粘动模"/><span style="font-size:small;text-align:center;height:20px">粘动模</span></label></td>
+                <td style="text-align:center;width:7%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldProduct" type="radio" value="粘定模"/><span style="font-size:small;text-align:center;height:20px">粘定模</span></label></td>
+                <td style="text-align:center;width:9%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldProduct" type="radio" value="角料易断"/><span style="font-size:small;text-align:center;height:20px">角料易断</span></label></td>
+                <td style="text-align:center;width:9%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldProduct" type="radio" value="产品难拔"/><span style="font-size:small;text-align:center;height:20px">产品难拔</span></label></td>
+                <td style="text-align:center;width:9%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldProduct" type="radio" value="角料难取"/><span style="font-size:small;text-align:center;height:20px">角料难取</span></label></td>
+                <td style="text-align:center;width:9%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldProduct" type="radio" value="顶出不畅"/><span style="font-size:small;text-align:center;height:20px">顶出不畅</span></label></td>
+                <td style="text-align:center;width:9%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldProduct" type="radio" value="角料毛刺"/><span style="font-size:small;text-align:center;height:20px">角料毛刺</span></label></td>
+                <td style="text-align:center;width:11%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldProduct" type="radio" value="在动模上垫纸"/><span style="font-size:small;text-align:center;height:20px">在动模上垫纸</span></label></td>
+                <td style="text-align:center;width:11%;border-left:none;border-right:none"><label style="margin-top:10px"><input name="moldProduct" type="radio" value="在定模上垫纸"/><span style="font-size:small;text-align:center;height:20px">在定模上垫纸</span></label></td>
+                <td style="text-align:center;width:19%;border-left:none"><label style="margin-top:10px"><input name="moldProduct" type="radio" value="在推料和动模板之间垫纸"/><span style="font-size:small;text-align:center;height:20px">在推料和动模板之间垫纸</span></label></td>
+              </tr>
+            </table>
+          </div>
+        </div>
+      </div>
+      
+      <div class="row" style="margin-top:10px">
+        <div id="exemptionContID" class="col-1" style="padding-right:0">
+          <label for="exemptionId" style="font-size:small">领班工号</label>
+          <input id="exemptionId" type="text" inputmode="numeric" class="form-control" data-length="5" style="font-size:small">
+        </div>
+            
+        <div id="PasswordInputBoxContID" class="col-1" style="padding:0">
+          <label for="PasswordInputBoxID" style="font-size:small">领班密码</label>
+          <input id="PasswordInputBoxID" type="password" inputmode="numeric" class="form-control" style="font-size:small">
+        </div>
+
+        <div id="exemptionContEquID" class="col-2" style="padding-right:0">
+          <label for="exemptionEquId" style="font-size:small">技术组长工号</label>
+          <input id="exemptionEquId" type="text" inputmode="numeric" class="form-control" data-length="5" style="font-size:small">
+        </div>
+            
+        <div id="PasswordInputBoxContEquID" class="col-2" style="padding:0">
+          <label for="PasswordInputBoxEquID" style="font-size:small">技术组长密码</label>
+          <input id="PasswordInputBoxEquID" type="password" inputmode="numeric" class="form-control" style="font-size:small">
+        </div>
+              
+        <div class="col-2">
+          <label for="recordSubmit" style="font-size:small">　</label>
+          <button id="recordSubmit" class="form-control btn btn-sm btn-danger" type="submit" name="action">提交记录</button>
+        </div>
+      </div>
+    </div>
+    
+    <?!=include("core_2.6.11_js");?>
+    <?!=include("compress_1.1.1_js");?>
+    <?!=include("limonte_sweetalert2_11.4.4_js");?>
+    <?!=include("jquery_3.5.1_js");?>
+    <?!=include("dayjs_1.10.4_js");?>
+    <?!=include("moment_2.29.1_js");?>
+    <?!=include("popper_1.16.1_js");?>
+    <?!=include("bootstrap_4.5.3_js");?>
+    <?!=include("bootstrap_datepicker_1.9.0_js");?>
+    <?!=include("bootstrap_datepicker_zh_cn_1.9.0_js");?>
+    <?!=include("bootstrap_select_1.13.18_js");?>
+    <?!=include("FinalMoldCollectionScript");?>   
+  </body>
+</html>

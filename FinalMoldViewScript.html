@@ -1,0 +1,216 @@
+<script>
+  let execUrl = "";
+  const timearr = [0, 0];
+
+  /**
+   * ==========================================
+   * 页面安全防护设置
+   * ==========================================
+   * 禁用鼠标右键菜单与浏览器的开发者调试快捷键 (F12, Ctrl+Shift+I)
+   */
+  window.onload = function() {       
+    document.onkeydown = function() {
+      let e = window.event || arguments[0];
+      if (e.keyCode == 123) {         
+        return false;
+      } else if ((e.ctrlKey) && (e.shiftKey) && (e.keyCode == 73)) {
+        return false;
+      }
+    }
+    document.oncontextmenu = function() {
+      return false;
+    }
+  }
+
+  /**
+   * ==========================================
+   * 辅助工具：安全解析 JSON 数组
+   * ==========================================
+   * 防止因后台出现空字符串或非标准 JSON 导致前端报错白屏
+   * @param {string} jsonStr - 后台提取的序列化数据
+   * @returns {string} 使用 <br> 拼接的 HTML 字符串
+   */
+  function safeJSONParse(jsonStr) {
+    if (!jsonStr) return "";
+    try {
+      let arr = JSON.parse(jsonStr);
+      if (Array.isArray(arr)) {
+        return arr.join("<br>");
+      }
+      return String(arr);
+    } catch (e) {
+      console.warn("JSON解析失败，返回原始字符串:", jsonStr);
+      return String(jsonStr);
+    }
+  }
+
+  /**
+   * ==========================================
+   * 初始化时间选择器插件
+   * ==========================================
+   */
+  function initializationDatePicker() {
+    $('.data-datepicker').datepicker({
+      "language": "zh-CN",
+      "calendarWeeks": true,
+      "todayHighlight": true
+    });
+  }
+
+  /**
+   * ==========================================
+   * 页面初始化与全量数据提取
+   * ==========================================
+   */
+  $(document).ready(function () {
+    // 异步拉取后端发布的 Web URL
+    google.script.run.withSuccessHandler(result => { execUrl = result; console.log(execUrl) }).getReleaseWebPage();
+    
+    // 弹窗提示并等待加载数据
+    Swal.fire({allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在提取数据……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>'});
+    
+    google.script.run.withSuccessHandler(htmlGetCollectionData).getCollectionData();
+    
+    function htmlGetCollectionData(result) {
+      if (result[0] == "OK") {
+        let table = $("#finalMoldViewTableID");
+        let tbody = $("#finalMoldViewTbodyID");
+        let rows = tbody.find("tr").length;
+        let strSelect = "<option selected>Ongoing</option><option>Done</option>";
+        
+        // 清空旧数据
+        for (let i = rows - 1; i > -1; i--) {
+          tbody.find("tr").eq(i).remove();
+        }
+        
+        let arrData = result[2];
+        for (let i = 0; i < arrData.length; i++) {
+          // 清除系统默认初始时间
+          if (arrData[i][14] == "1970-01-01") { arrData[i][14] = ""; }
+          
+          // 状态反显
+          if (arrData[i][15] == "Done") {
+            strSelect = "<option>Ongoing</option><option selected>Done</option>";
+          } else {
+            strSelect = "<option selected>Ongoing</option><option>Done</option>";
+          }
+          
+          // 安全解析并组合外观与生产过程的 JSON 描述
+          let appearanceStr = safeJSONParse(arrData[i][9]);
+          let productProcessStr = safeJSONParse(arrData[i][10]);
+
+          // 使用模板字符串动态组装单行 HTML
+          let str = `<tr>
+            <td style="display:none;text-align:center">${arrData[i][0]}</td>
+            <td style="text-align:center">${arrData[i][1]}</td>
+            <td style="background:yellow"><textarea rows="1" oninput="autoHeight(this)" class="tabTextareaNone">${arrData[i][2]}</textarea></td>
+            <td style="display:none;text-align:center">${arrData[i][3]}</td>
+            <td style="text-align:center">${arrData[i][4]}</td>
+            <td style="text-align:center">${arrData[i][5]}</td>
+            <td style="text-align:center">${arrData[i][6]}</td>
+            <td style="text-align:center">${arrData[i][7]}</td>
+            <td style="text-align:center">${arrData[i][8]}</td>
+            <td style="text-align:left">${appearanceStr}</td>
+            <td style="text-align:left">${productProcessStr}</td>
+            <td style="text-align:center">${arrData[i][11]}</td>
+            <td style="background:yellow"><textarea rows="1" oninput="autoHeight(this)" class="tabTextareaNone">${arrData[i][12]}</textarea></td>
+            <td style="background:yellow"><textarea rows="1" oninput="autoHeight(this)" class="tabTextareaNone">${arrData[i][13]}</textarea></td>
+            <td style="background:yellow"><input class="tabInputNone data-datepicker" data-provide="datepicker" data-date-format="yyyy-mm-dd" data-date-autoclose="true" placeholder="选择" style="margin:0;padding:0;font-size:small" value="${arrData[i][14]}"></td>
+            <td style="background:yellow"><select class="tabSelectNone">${strSelect}</select></td>
+            <td style="text-align:center"><button class="btn btn-sm btn-primary" onclick="saveRow(this)">保存</button></td>
+          </tr>`;
+          
+          tbody.append(str);
+          initializationDatePicker();
+          autoBatchAdjustTextareaHeightMax(table, tbody, i);
+        }
+        
+        Swal.fire({allowOutsideClick: false, icon: 'success', title: '友情提醒', text: result[1], showConfirmButton: false, timer: 1500});
+      } else {
+        Swal.fire({allowOutsideClick: false, width: "60%", icon: 'error', title: '友情提醒', text: "提取失败：" + result[1], showConfirmButton: true});
+      }
+    }
+  });
+  
+  /**
+   * ==========================================
+   * 保存当前行的单条维修记录到后台
+   * ==========================================
+   * 触发于点击当前行的 "保存" 按钮
+   * @param {HTMLElement} obj - 触发点击的按钮元素 (this)
+   */
+  function saveRow(obj) {
+    let tbodyId = "finalMoldViewTbodyID";
+    let tbody = $("#" + tbodyId);
+    let trSeq = $(obj).parent().parent().index();
+    
+    // 定位抓取当前行的所需参数值
+    let rowNum = tbody.find("tr").eq(trSeq).find("td").eq(0).text();
+    let repairMoldPlate = tbody.find("tr").eq(trSeq).find("td").eq(2).find("textarea").val();
+    let repairDes = tbody.find("tr").eq(trSeq).find("td").eq(12).find("textarea").val();
+    let repairStaff = tbody.find("tr").eq(trSeq).find("td").eq(13).find("textarea").val();
+    let repairDate = tbody.find("tr").eq(trSeq).find("td").eq(14).find("input").val();
+    let repairStatus = tbody.find("tr").eq(trSeq).find("td").eq(15).find("select").val();
+    
+    // 逻辑：只要模具铭牌不为空则允许提交
+    if (repairMoldPlate != "") { 
+      Swal.fire({allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在保存数据……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>'});
+      
+      google.script.run.withSuccessHandler(htmlWriteRepairMoldData).writeRepairMoldData(Number(rowNum), repairMoldPlate, repairDes, repairStaff, repairDate, repairStatus, tbodyId, trSeq);
+      
+      function htmlWriteRepairMoldData(result) {
+        if (result[0] == "OK") {
+          // 保存成功后将当前行变绿，提供视觉反馈
+          $("#" + result[1]).find("tr").eq(result[2]).css("backgroundColor", "green");
+          Swal.fire({allowOutsideClick: false, icon: 'success', title: '友情提醒', text: "保存成功", showConfirmButton: true});
+        } else {
+          Swal.fire({allowOutsideClick: false, width: "60%", icon: 'error', title: '友情提醒', text: "保存失败：" + result[1], showConfirmButton: true});
+        }
+      }
+    } else {
+      Swal.fire({allowOutsideClick: false, width: "60%", icon: 'error', title: '友情提醒', text: "黄色部位数据不能为空", showConfirmButton: true});
+    }
+  }
+  
+  /**
+   * ==========================================
+   * 控制 Textarea 高度随内容发生动态变化
+   * ==========================================
+   * 触发于 textarea 的 oninput 事件
+   * @param {HTMLElement} obj - 触发输入的 textarea 对象
+   */
+  function autoHeight(obj) {
+    let table = $("#finalMoldViewTableID");
+    let tbody = $("#finalMoldViewTbodyID");
+    let trSeq = $(obj).parent().parent().index();
+    let tdSeq = $(obj).parent().index();
+    autoBatchAdjustTextareaHeightMax(table, tbody, trSeq);
+  }
+  
+  /**
+   * ==========================================
+   * 批量调整指定行中所有文本框的高度匹配内容
+   * ==========================================
+   * @param {jQuery} table - 表格顶级节点
+   * @param {jQuery} tbody - 表格 tbody 节点
+   * @param {number} trSeq - 需要调整的目标行索引
+   * @returns {Array} 该行调整后的各个 textarea 的 scrollHeight 数组
+   */
+  function autoBatchAdjustTextareaHeightMax(table, tbody, trSeq) {
+    let cols = table.find("tr").eq(0).find("th").length;
+    let arrHeights = [];
+    
+    for (let i = 0; i < cols; i++) {
+      let textareaTemp = tbody.find("tr").eq(trSeq).find("td").eq(i).find("textarea");
+      if (textareaTemp.length > 0) {
+        let textareaTempNum = textareaTemp[0];
+        // 重置为 auto 以便获取准确缩小后的高度，再赋予实际滑动高度
+        textareaTempNum.style.height = 'auto';
+        textareaTempNum.style.height = textareaTempNum.scrollHeight + "px";
+        arrHeights.push(textareaTempNum.scrollHeight);
+      }
+    }
+    return arrHeights;
+  }
+  
+</script>

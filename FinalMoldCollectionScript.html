@@ -1,0 +1,284 @@
+<script>
+  let execUrl = "";
+  const timearr = [0, 0];
+
+  /**
+   * ==========================================
+   * 页面安全防护设置
+   * ==========================================
+   * 禁用鼠标右键菜单与浏览器的开发者调试快捷键 (F12, Ctrl+Shift+I)
+   */
+  window.onload = function() {       
+    document.onkeydown = function() {
+      let e = window.event || arguments[0];
+      if (e.keyCode == 123) {         
+        return false;
+      } else if ((e.ctrlKey) && (e.shiftKey) && (e.keyCode == 73)) {
+        return false;
+      }
+    }
+    document.oncontextmenu = function() {
+      return false;
+    }
+  }
+
+  /**
+   * ==========================================
+   * 页面主加载与上下文填充
+   * ==========================================
+   * 将缓存中的机台基础信息同步到输入框，并智能计算当前班次
+   */
+  $(document).ready(function () {
+    // 获取后端 Web App 的 URL
+    google.script.run.withSuccessHandler(result => { execUrl = result; console.log(execUrl) }).getReleaseWebPage();
+    
+    // 从缓存中恢复上下文数据
+    let collectionName = sessionStorage.getItem("viewName");
+    $("#collectionName").val(collectionName);
+    
+    let collectionMachine = sessionStorage.getItem("finalMoldCollectionMachine");
+    let collectionMoldModel = sessionStorage.getItem("finalMoldCollectionMoldModel");
+    let collectionSku = sessionStorage.getItem("finalMoldCollectionSku");
+    let collectionDes = sessionStorage.getItem("finalMoldCollectionDes");
+    
+    $("#collectionMachine").val(collectionMachine);
+    $("#collectionMoldModel").val(collectionMoldModel);
+    $("#collectionSku").val(collectionSku);
+    $("#collectionDes").val(collectionDes);
+    
+    // 时间与班次智能计算逻辑
+    let now = new Date();
+    let nowDate = moment(now).format("YYYY-MM-DD");
+    let nowHourMinute = moment(now).format("HH:mm");
+    
+    let shift = 0;
+    let nowDateShift = "";
+    
+    // 【BUG 修复】：无缝涵盖 24 小时，原先 15:45 到 16:00 之间的盲区已被修补
+    if (nowHourMinute >= "00:00" && nowHourMinute < "08:00") {
+      shift = 1;
+      nowDateShift = nowDate + "_" + shift;
+    } else if (nowHourMinute >= "08:00" && nowHourMinute < "15:45") {
+      shift = 2;
+      nowDateShift = nowDate + "_" + shift;
+    } else {
+      // 囊括 15:45 到 23:59 之间的范围
+      shift = 3;
+      nowDateShift = nowDate + "_" + shift;
+    }
+    
+    $("#collectionDateShift").val(nowDateShift);
+  });
+  
+  /**
+   * ==========================================
+   * 界面 UI 交互：双击清除选中项
+   * ==========================================
+   * 当用户双击 "位置" 或 "缺陷" 的表头单元格时，自动清除该行已勾选的单选框。
+   */
+  $("#radioFinalMoldAppearanceTableID").on("dblclick", "td", function() {
+    let tdSeq = $(this).index();
+    let trSeq = $(this).parent().index();
+    
+    // 索引 1 对应的是 "位置" 列的表头
+    if (tdSeq == 1) {
+      $("input[name=" + "moldPosition" + (trSeq + 1) + "]:checked").prop("checked", false);
+    }
+    // 索引 7 对应的是 "缺陷" 列的表头
+    if (tdSeq == 7) {
+      $("input[name=" + "moldDefect" + (trSeq + 1) + "]:checked").prop("checked", false);
+    }
+  });
+  
+  /**
+   * ==========================================
+   * 核心提交流程：表单校验与数据封包
+   * ==========================================
+   */
+  $("#recordSubmit").on("click", function() {
+    let tableAppearance = $("#radioFinalMoldAppearanceTableID");
+    let rowsAppearance = tableAppearance.find("tr").length;
+    
+    let arrAppearanceData = [];
+    let arrAppearanceErrorData = [];
+    
+    // 1. 遍历 5 个模具穴位的输入行进行完整性校验
+    for (let i = 0; i < rowsAppearance; i++) {
+      let caveTemp = tableAppearance.find("tr").eq(i).find("td").eq(0).find("input").val();
+      let positionTemp = $("input[name=" + "moldPosition" + (i + 1) + "]:checked").val();
+      let defectTemp = $("input[name=" + "moldDefect" + (i + 1) + "]:checked").val();
+      let otherDefectTemp = tableAppearance.find("tr").eq(i).find("td").eq(15).find("textarea").val();
+      
+      // 逻辑规则：只要填写了任意一项，该行的其它必填项也必须填完，否则视为残缺数据
+      if ((caveTemp == "" && (typeof(positionTemp) != "undefined" || typeof(defectTemp) != "undefined" || otherDefectTemp != "")) || 
+          (caveTemp != "" && (typeof(positionTemp) == "undefined" || (typeof(defectTemp) == "undefined" && otherDefectTemp == "")))) {
+        arrAppearanceErrorData.push(["第" + (i + 1) + "行数据填写不符合要求"]);
+      } else if (caveTemp != "" && typeof(positionTemp) != "undefined" && (typeof(defectTemp) != "undefined" || otherDefectTemp != "")) {
+        // 如果缺陷单选框和其它文本框都填了，用分号合并
+        if (typeof(defectTemp) != "undefined") {
+          arrAppearanceData.push(["第" + caveTemp + "穴", "位置：" + positionTemp, "缺陷：" + defectTemp + "；" + otherDefectTemp]);
+        } else {
+          arrAppearanceData.push(["第" + caveTemp + "穴", "位置：" + positionTemp, "缺陷：" + otherDefectTemp]);
+        }
+      }
+    }
+    
+    // 2. 收集生产过程缺陷数据
+    let arrProductData = [];
+    let productTemp = $("input[name=" + "moldProduct]:checked").val();
+    if (typeof(productTemp) != "undefined") {
+      arrProductData.push(productTemp);
+    }
+    
+    // 3. 基础变量集合打包
+    let collectionMoldModel = $("#collectionMoldModel").val();
+    let collectionMachine = $("#collectionMachine").val();
+    let collectionMoldPlate = $("#collectionMoldPlate").val();
+    let collectionDateShift = $("#collectionDateShift").val();
+    let collectionSku = $("#collectionSku").val();
+    let collectionDes = $("#collectionDes").val();
+    let nowDateTime = moment().format("YYYY-MM-DD HH:mm:ss");
+    let collectionName = $("#collectionName").val();
+    
+    // 序列化为 JSON 字符串以便入库
+    let collectionAppearnace = JSON.stringify(arrAppearanceData);
+    let collectionProduct = JSON.stringify(arrProductData);
+    
+    let exemptionId = $("#exemptionId").val();
+    let PasswordInputBoxID = $("#PasswordInputBoxID").val();
+    let exemptionEquId = $("#exemptionEquId").val();
+    let PasswordInputBoxEquID = $("#PasswordInputBoxEquID").val();
+    
+    let arrData = [];
+    let arrForemanExemption = [];
+    let arrEquExemption = [];
+    
+    // 4. 双重密码权限验证
+    arrForemanExemption = checkForemanExemption(exemptionId, PasswordInputBoxID);
+    arrEquExemption = checkEquExemption(exemptionEquId, PasswordInputBoxEquID);
+    
+    if (exemptionId == "") { arrForemanExemption.push(["不能跳过：需要领班确认"]); }
+    if (exemptionEquId == "") { arrEquExemption.push(["不能跳过：需要技术组长确认"]); }
+    
+    let arrTotalErrorData = arrAppearanceErrorData.concat(arrForemanExemption).concat(arrEquExemption);
+    
+    // 5. 判断校验结果并分发请求
+    if (arrTotalErrorData.length < 1) {
+      // 判定状态：如果双阵列记录极短（判定为无明显缺陷），则写入 "Done"，否则状态标为 "Ongoing"
+      if (collectionAppearnace.toString().length < 3 && collectionProduct.toString().length < 3) {
+        arrData.push(collectionMoldModel, collectionMoldPlate, collectionDateShift, collectionMachine, collectionSku, collectionDes, nowDateTime, collectionName, collectionAppearnace, collectionProduct, exemptionId + "|" + exemptionEquId, "", "", "", "Done");
+      } else {
+        arrData.push(collectionMoldModel, collectionMoldPlate, collectionDateShift, collectionMachine, collectionSku, collectionDes, nowDateTime, collectionName, collectionAppearnace, collectionProduct, exemptionId + "|" + exemptionEquId, "", "", "", "Ongoing");
+      }
+      
+      Swal.fire({allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在提交数据……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>'});
+      
+      google.script.run.withSuccessHandler(htmlWriteCollectionData).writeCollectionData(arrData);
+      
+      function htmlWriteCollectionData(result) {
+        if (result[0] == "OK") {
+          Swal.fire({allowOutsideClick: false, icon: 'success', title: '友情提醒', text: result[1], showConfirmButton: true});
+        } else {
+          Swal.fire({allowOutsideClick: false, width: "60%", icon: 'error', title: '友情提醒', text: "提交失败：" + result[1], showConfirmButton: true});
+        }
+      }
+    } else {
+      // 如果存在报错，组装 HTML Table 展示警告
+      arrTotalErrorData.unshift(["不通过原因"]);
+      let swalHtml = General_Htmltable(arrTotalErrorData, 100);
+      Swal.fire({allowOutsideClick: false, icon: 'info', title: '验证不通过', html: swalHtml, showConfirmButton: true});
+    }
+  });
+  
+  /**
+   * ==========================================
+   * 权限校验器：领班密码验证
+   * ==========================================
+   * @param {string} exemptionId - 领班工号
+   * @param {string} PasswordInputBoxID - 用户输入的密码
+   * @returns {Array} 如果有错，返回错误原因数组，否则为空
+   */
+  function checkForemanExemption(exemptionId, PasswordInputBoxID) {
+    let arrPassAuth = JSON.parse(sessionStorage.getItem("allPassAuth"));
+    let arrId = arrPassAuth.map(function(x) { return x[0] });
+    let position = arrId.indexOf(exemptionId);
+    let passAuth = [];
+    
+    if (position > -1) { 
+      passAuth = [arrPassAuth[position][1], arrPassAuth[position][2], arrPassAuth[position][3], arrPassAuth[position][4]]; 
+    }
+    
+    let exemptionPassReson = [];
+    if (passAuth[0] != PasswordInputBoxID) {
+      exemptionPassReson.push(["不能跳过：领班密码不正确"]);
+    }
+    // 备用权限隔离验证位：
+    // if(passAuth[1]!=workshop) { exemptionPassReson.push(["不能跳过","","不是本车间的领班"]); }
+    // if(passAuth[2]!="INJ") { exemptionPassReson.push(["不能跳过","","不是本工序的领班"]); }
+    if (passAuth[3] != "Y") {
+      exemptionPassReson.push(["不能跳过：该领班无确认权限"]);
+    }
+    return exemptionPassReson;
+  }
+
+  /**
+   * ==========================================
+   * 权限校验器：技术组长密码验证
+   * ==========================================
+   * @param {string} exemptionEquId - 组长工号
+   * @param {string} PasswordInputBoxEquID - 用户输入的密码
+   * @returns {Array} 如果有错，返回错误原因数组，否则为空
+   */
+  function checkEquExemption(exemptionEquId, PasswordInputBoxEquID) {
+    let arrPassAuth = JSON.parse(sessionStorage.getItem("allPassAuth"));
+    let arrId = arrPassAuth.map(function(x) { return x[0] });
+    let position = arrId.indexOf(exemptionEquId);
+    let passAuth = [];
+    
+    if (position > -1) { 
+      passAuth = [arrPassAuth[position][1], arrPassAuth[position][2], arrPassAuth[position][3], arrPassAuth[position][4]]; 
+    }
+    
+    let exemptionPassReson = [];
+    if (passAuth[0] != PasswordInputBoxEquID) {
+      exemptionPassReson.push(["不能跳过：技术组长密码不正确"]);
+    }
+    // 备用权限隔离验证位：
+    // if(passAuth[1]!=workshop) { exemptionPassReson.push(["不能跳过","","不是本车间的领班"]); }
+    // if(passAuth[2]!="INJ") { exemptionPassReson.push(["不能跳过","","不是本工序的领班"]); }
+    if (passAuth[3] != "YT") {
+      exemptionPassReson.push(["不能跳过：该技术组长无确认权限"]);
+    }
+    return exemptionPassReson;
+  }
+
+  /**
+   * ==========================================
+   * 报警列表 HTML 表格生成器
+   * ==========================================
+   * 将验证中拦截产生的多条错误信息转置为可视化的带有交替斑马纹样式的 HTML table
+   * @param {Array} data - 二维错误信息数组
+   * @param {number} scale - 表格宽度百分比
+   * @returns {string} 拼装后的 html 代码片段
+   */
+  function General_Htmltable(data, scale) {
+    let arrWidths = [100];
+    let htmltable = "<table border='1' style='table-layout:fixed;border-collapse:separate;font-size:small;color:red;width:" + scale + "%;'>";
+    for (let i = 0; i < data.length; i++) {
+      htmltable += "<tr>";
+      for (let j = 0; j < data[i].length; j++) {
+        if (i == 0) {
+          htmltable += "<td style='text-align:center;background-color:#CCFFFF;color:black;font-weight:bold;width:" + arrWidths[j] + "%'>" + data[i][j] + "</td>";
+        } else if (i > 0 && i % 2 == 0) {
+          htmltable += "<td style='text-align:center;background-color:#E8E8E8'>" + data[i][j] + "</td>";
+        } else {
+          htmltable += "<td style='text-align:center'>" + data[i][j] + "</td>";
+        }
+      }
+      htmltable += "</tr>";
+    }
+    htmltable += "</table>";
+    return htmltable;
+  }
+    
+</script>

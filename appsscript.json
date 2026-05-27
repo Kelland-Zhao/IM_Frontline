@@ -1,0 +1,26 @@
+{
+  "timeZone": "Asia/Shanghai",
+  "dependencies": {
+    "enabledAdvancedServices": [
+      {
+        "userSymbol": "Drive",
+        "version": "v2",
+        "serviceId": "drive"
+      }
+    ],
+    "libraries": [
+      {
+        "userSymbol": "SendGoogleChat",
+        "version": "0",
+        "libraryId": "1x1SVWG5Bkz4yOmSSx9Lr4Ze2XJHUihf3bne6yqDGjVFoiXgMrpe9sKYW",
+        "developmentMode": true
+      }
+    ]
+  },
+  "webapp": {
+    "executeAs": "USER_DEPLOYING",
+    "access": "DOMAIN"
+  },
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8"
+}

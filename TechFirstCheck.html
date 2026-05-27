@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ch">
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <?!=include("bootstrap_4.5.3_css");?>
+    <?!=include("bootstrap_datepicker_1.9.0_css");?>
+    <?!=include("bootstrap_select_1.13.18_css");?>
+    <?!=include("jquery_ui_1.12.1_css");?>
+    <?!=include("limonte_sweetalert2_11.4.4_css");?>
+    <?!=include("fontawesome_4.5_js");?>
+    <?!=include("CSS");?>
+  </head>
+  <body>
+    <div class="container" style="margin-top:0px">
+      <h3 id="viewModalStandardData" class="text-center" style="background-color:rgb(218,41,28);color:white;padding:5px">
+        <?=title;?>
+      </h3>
+    </div>
+
+    <div class="container" style="margin-top:10px">
+      <ul class="nav nav-tabs" id="taskTabs" role="tablist"></ul>
+    </div>
+    
+    <div class="container tab-content" id="taskTabContent" style="margin-top:10px"></div>
+
+    <template id="techFirstCheckFormTemplate">
+      <div class="card task-card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px">
+        <div class="row" style="margin-bottom: 20px;">
+          <div class="col-2" style="margin-top:0;">
+            <label style="font-size:small">技术员姓名</label>
+            <input id="usernameID" type="text" class="form-control" value="XXX" style="font-size:small" disabled>
+          </div>
+          <div class="col-2" style="margin-top:0;">
+            <label style="font-size:small">技术员工号</label>
+            <input id="SAPCodeID" type="text" class="form-control" value="XXXXX" style="font-size:small" disabled>
+          </div>
+          <div class="col-2" style="margin-top:0;display:none">
+            <label style="font-size:small;color:black">模具及拌料</label>
+            <input id="lineMoldType" type="text" class="form-control" value="Y" style="font-size:small" disabled>
+          </div>
+          <div class="col-1" style="margin-top:0;">
+            <label style="font-size:small">车间</label>
+            <input id="workshopID" type="text" class="form-control" value="XXX" style="font-size:small" disabled>
+          </div>
+          <div class="col-2" style="margin-top:0;">
+            <label style="font-size:small">物料号</label>
+            <input id="materialInputID" type="text" class="form-control" value="XXXXXXXX" style="font-size:small" disabled>
+          </div>
+          <div class="col-2" style="margin-top:0;">
+            <label style="font-size:small">机台号</label>
+            <input id="lineInputBoxID" type="text" class="form-control" value="XXXXXXXX" style="font-size:small" disabled>
+          </div>
+          <div class="col-3" style="margin-top:0;">
+            <label style="font-size:small">确认时间</label>
+            <input id="timeInputID" type="text" class="form-control" value="YYYY-MM-DD HH:mm:ss" style="font-size:small" disabled>
+          </div>
+        </div>
+
+        <div id="divParmeterInjection" class="row" style="margin-top:10px">
+          <div id="divColParmeterInjection" class="col">
+            <div class="row">
+              <div class="col text-left">
+                <div class="input-group">
+                  <div class="input-group-prepend">
+                    <h6 class="input-group-text" style="font-size:small">工艺参数确认：</h6>
+                  </div>
+                  <div id="selectSplitNum" style="display:none">
+                    <select id="splitNum" class="form-control" style="font-size:small;background-color:#f0ad4e;margin-right:20px;"></select>
+                  </div>
+                  <div class="input-group-append">
+                    <span class="input-group-text" id="changeReason" style="color:red;font-size:small"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <div class="col">
+                <table id="parameterInjectionTableID" border="1" cellspacing="0" align="center" style="table-layout:fixed;width:100%;background-color:lightcyan;font-size:small;word-break:break-all">
+                  <thead id="parameterInjectionTheadID"></thead>
+                  <tbody id="parameterInjectionTbodyID"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <div class="container" style="margin-top:15px; margin-bottom:20px">
+      <div class="row">
+        <div id="passSelectContID" class="col-1" style="padding-right:0">
+          <label style="font-size:small">工艺状态</label>
+          <select id="passSelectResons" class="form-control" style="font-size:small">
+            <option value="通过" style="font-size:small">通过</option>
+          </select>
+        </div>
+        <div id="selectResonsContID" class="col-2">
+          <label style="font-size:small">原因类别</label>
+          <select id="reportSelectResons" class="form-control" style="font-size:small">
+            <option value="正常" style="font-size:small">正常</option>
+            <option value="豁免" style="font-size:small">跳过(需授权)</option>
+          </select>
+        </div>
+        <div id="divExemptInputBoxContID" class="col-2" style="display:none">
+          <label style="font-size:small">豁免备注原因</label>
+          <input id="exemptInputBoxID" type="text" class="form-control" style="font-size:small">
+        </div>
+        <div id="exemptionContID" class="col-2">
+          <label style="font-size:small">高级技术员授权工号</label>
+          <input id="exemptionId" type="text" inputmode='numeric' class="form-control" data-length="5" style="font-size:small">
+        </div>
+        <div id="PasswordInputBoxContID" class="col-2">
+          <label style="font-size:small">高级技术员授权密码</label>
+          <input id="PasswordInputBoxID" type="password" class="form-control" style="font-size:small">
+        </div>
+        <div class="col-3">
+          <label style="font-size:small">若工艺验证全无超差，无需二级授权</label>
+          <button id="recordSubmit" class="form-control btn btn-sm btn-danger" type="button" style="font-weight:bold;">保存记录</button>
+        </div>
+      </div>
+    </div>
+    
+    <div id="modalStandardData" class="modal fade" role="dialog" aria-hidden="true" data-backdrop="static">
+      <div class="modal-dialog" style="max-width:100%">
+        <div class="modal-content" style="width:100%">
+          <div class="modal-header">
+            <h4 class="modal-title">查阅完整工艺卡参数范围标准</h4>
+            <button class="close" data-dismiss="modal">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="row">
+              <div class="col-4"><label style="font-size:small">模具号</label><input class="form-control text-center" id="modalStandardMoldModel" type="text" disabled></div>
+              <div class="col-4"><label style="font-size:small">自动化分组</label><input class="form-control text-center" id="modalStandardMachineModel" type="text" disabled></div>
+              <div class="col-4"><label style="font-size:small">机型</label><input class="form-control text-center" id="modalStandardMachineType" type="text" disabled></div>
+            </div>
+            <div class="row" style="margin-top:15px">
+              <div class="col">
+                <div class="frozenTableR" style="height:350px">
+                  <table id="modalTabStandardTechnologyID" border="1" bordercolor="lightblue" cellspacing="0" align="center" style="table-layout:fixed;width:100%;word-break:break-all;font-size:12px">
+                    <thead>
+                      <tr style="background-color: whitesmoke">
+                        <th style="text-align:center;width:20%">分类特征</th>
+                        <th style="text-align:center;width:20%">工艺参数</th>
+                        <th style="text-align:center;width:20%">单位</th>
+                        <th style="text-align:center;width:20%">下限范围</th>
+                        <th style="text-align:center;width:20%">上限范围</th>
+                      </tr>
+                    </thead>
+                    <tbody id="modalTbodyStandardTechnologyID"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-success" data-dismiss="modal">确定</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <?!=include("core_2.6.11_js");?>
+    <?!=include("compress_1.1.1_js");?>
+    <?!=include("limonte_sweetalert2_11.4.4_js");?>
+    <?!=include("jquery_3.5.1_js");?>
+    <?!=include("dayjs_1.10.4_js");?>
+    <?!=include("moment_2.29.1_js");?>
+    <?!=include("popper_1.16.1_js");?>
+    <?!=include("bootstrap_4.5.3_js");?>
+    <?!=include("bootstrap_datepicker_1.9.0_js");?>
+    <?!=include("bootstrap_datepicker_zh_cn_1.9.0_js");?>
+    <?!=include("bootstrap_select_1.13.18_js");?>
+    <?!=include("TechFirstCheckScript");?>   
+  </body>
+</html>

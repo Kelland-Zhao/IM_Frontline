@@ -1,0 +1,629 @@
+<script>
+  /**
+   * ==========================================
+   * 全局变量声明区
+   * ==========================================
+   */
+  let execUrl = "";
+  let arrInjAllPlanParaData = [];
+  let arrInjAllPlanBomData = [];
+  let dbPromise = null;
+  const $doc = $(document);
+
+  /**
+   * ==========================================
+   * 页面安全防护设置
+   * ==========================================
+   */
+  window.onload = function() {       
+    document.onkeydown = function() {
+      let e = window.event || arguments[0];
+      if (e.keyCode == 123) { return false; } 
+      else if ((e.ctrlKey) && (e.shiftKey) && (e.keyCode == 73)) { return false; }
+    };
+    document.oncontextmenu = function() { return false; };
+  };
+
+  /**
+   * ==========================================
+   * 数据库连接与通信模块
+   * ==========================================
+   */
+  function openDB() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open('cp_app_db', 1);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('kv')) { db.createObjectStore('kv'); }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      req.onblocked = () => console.warn('IndexedDB 升级被阻塞');
+    });
+    return dbPromise;
+  }
+
+  async function idbGet(key) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readonly');
+      const req = tx.objectStore('kv').get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /**
+   * ==========================================
+   * 页面主加载初始化引擎
+   * ==========================================
+   */
+  $(document).ready(async function () {
+    google.script.run.withSuccessHandler(result => { execUrl = result; }).getReleaseWebPage();
+
+    // 1. 【核心防呆】：从本地大数据库拉取参数主数据库
+    arrInjAllPlanBomData = await idbGet("sSArrInjAllPlanBomData");
+    arrInjAllPlanParaData = await idbGet("sSArrInjAllPlanParaData");
+    
+    if (!arrInjAllPlanParaData || arrInjAllPlanParaData.length === 0) {
+      console.warn("本地数据库为空，触发设备首件深度死锁拦截！");
+      showFatalError("本地标准工艺卡库已过期或被清理。<br><br><b>请返回【查看计划】看板重新刷载主数据！</b>");
+      return;
+    }
+
+    // 3. 提取从【ViewPlan】传入的多机台任务队列
+    let taskQueue = JSON.parse(sessionStorage.getItem("multiTaskQueue") || "[]");
+    if (taskQueue.length === 0) {
+      taskQueue.push({
+        machine: sessionStorage.getItem("techFirstCheckMachine"),
+        sku: sessionStorage.getItem("techFirstCheckSku"),
+        moldType: sessionStorage.getItem("techFirstCheckBomMoldType"),
+        moldModel: sessionStorage.getItem("techFirstCheckMoldModel"),
+        machineModel: sessionStorage.getItem("techFirstCheckMachineModel"),
+        machineType: sessionStorage.getItem("techFirstCheckMachineType")
+      });
+    }
+
+    // 4. 动态构建前台 Tab 选项页标签及各个容器 (同步极速渲染)
+    let templateHtml = $("#techFirstCheckFormTemplate").html();
+    for (let i = 0; i < taskQueue.length; i++) {
+      const task = taskQueue[i];
+      const mName = task.machine.split(",")[0];
+      const isFirst = (i === 0);
+      
+      $("#taskTabs").append("<li class='nav-item' id='nav-item-" + i + "'><a class='nav-link " + (isFirst ? "active" : "") + "' id='tab-btn-" + i + "' data-toggle='tab' href='#pane-" + i + "'>" + mName + " <span class='tab-check-badge' id='tab-badge-" + i + "'>设备首件</span><span class='close-tab' data-index='" + i + "' title='移除此任务'>&times;</span></a></li>");
+      
+      let localTemplateHtml = templateHtml;
+      localTemplateHtml = localTemplateHtml.replace(/id=["']([^"']+)["']/g, "id=\"$1_" + i + "\"");
+      localTemplateHtml = localTemplateHtml.replace(/for=["']([^"']+)["']/g, "for=\"$1_" + i + "\"");
+      localTemplateHtml = localTemplateHtml.replace(/name=["']([^"']+)["']/g, "name=\"$1_" + i + "\"");
+
+      $("#taskTabContent").append("<div class='tab-pane fade " + (isFirst ? "show active" : "") + "' id='pane-" + i + "' data-index='" + i + "'>" + localTemplateHtml + "</div>");
+      
+      // 【核心视觉修复】：HTML框架一旦挂载，0毫秒内立刻回填本地基础信息，不再等待网络！
+      $("#usernameID_" + i).val(sessionStorage.getItem("viewName"));
+      $("#SAPCodeID_" + i).val(sessionStorage.getItem("viewId"));
+      $("#workshopID_" + i).val(sessionStorage.getItem("selfCheckDep"));
+      $("#timeInputID_" + i).val(dayjs().format("YYYY-MM-DD HH:mm:ss"));
+      $("#lineInputBoxID_" + i).val(task.machine);
+      $("#materialInputID_" + i).val(task.sku);
+      $("#lineMoldType_" + i).val(task.moldType || sessionStorage.getItem("techFirstCheckBomMoldType"));
+    }
+
+    // 5. 挂载加载动画，准备计算班次并拉取网络防呆校验
+    Swal.fire({allowOutsideClick: false, icon: "info", title: "提醒", text: "正在加载机台设备参数...", showConfirmButton: false});
+
+    let nowHM = dayjs().format("HH:mm");
+    let nowDate = dayjs().format("YYYY-MM-DD");
+    let nextDate = dayjs().add(1, 'day').format("YYYY-MM-DD");
+    let nowDateShift = "";
+    if(nowHM > "23:44" && nowHM < "24:00"){ nowDateShift = nextDate + "_1"; }
+    else if(nowHM >= "00:00" && nowHM < "07:45"){ nowDateShift = nowDate + "_1"; }
+    else if(nowHM > "07:44" && nowHM < "15:45"){ nowDateShift = nowDate + "_2"; }
+    else if(nowHM > "15:44" && nowHM < "23:45"){ nowDateShift = nowDate + "_3"; }
+
+    // 6. 发射 1 次高效矩阵网络包，批量查岗
+    const batchRes = await new Promise((resolve) => {
+      google.script.run.withSuccessHandler(resolve).batchCheckWriteTechFirstConfirm(nowDateShift, taskQueue);
+    });
+    let checkResultsMap = (batchRes[0] === "OK") ? batchRes[1] : {};
+
+    // 7. 多标签异步高维隔离并发渲染参数对仗
+    let initPromises = [];
+    for (let i = 0; i < taskQueue.length; i++) {
+      let mName = taskQueue[i].machine.split(",")[0];
+      let resCheck = checkResultsMap[mName] || ["OK", ""];
+      initPromises.push(initSingleTaskPane(i, taskQueue[i], resCheck));
+    }
+    await Promise.all(initPromises);
+
+    Swal.fire({icon: "success", title: "标准参数对仗完成", timer: 1200, showConfirmButton: false});
+
+    // 8. 监听选项卡活动切换系统大标题
+    $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
+      const targetId = $(e.target).attr("href");
+      const index = $(targetId).data("index");
+      updateGlobalTitle(index);
+    });
+  });
+
+  /**
+   * ==========================================
+   * 单一机台任务面板参数渲染核心
+   * ==========================================
+   */
+  async function initSingleTaskPane(index, task, resCheck) {
+    let isDuplicateMachine = false;
+    let taskQueue = JSON.parse(sessionStorage.getItem("multiTaskQueue") || "[]");
+    for (let j = 0; j < index; j++) {
+      if (taskQueue[j].machine === task.machine) { isDuplicateMachine = true; break; }
+    }
+    window["isDuplicateMachine_" + index] = isDuplicateMachine; 
+
+    // 六轴副机判定拦截豁免
+    const machineModelStr = task.machineModel || sessionStorage.getItem("techFirstCheckMachineModel") || "";
+    if (task.machine.startsWith('V') && machineModelStr.indexOf('6Aix') !== -1) {
+      $("#divParmeterInjection_" + index).hide();
+      $("#divParmeterInjection_" + index).before("<div class='alert alert-secondary text-center'><b>" + task.machine + "</b> 属于 6Aix 副机，设备无需核对工艺。</div>");
+    }
+
+    // 重复提交行级拦截
+    if (resCheck[0] === "NO") {
+      $("#divParmeterInjection_" + index).before("<div class='alert alert-danger' style='margin-bottom:10px; padding:5px;'><strong>" + resCheck[1] + "</strong> - 重载已锁定。</div>");
+      $("#pane-" + index).addClass("techcheck-exists");
+    }
+
+    // 从大数据库中本地过滤属于“设备”的工艺参数并渲染
+    const moldModelSafe = task.moldModel || sessionStorage.getItem("techFirstCheckMoldModel") || "";
+    const machineTypeSafe = task.machineType || sessionStorage.getItem("techFirstCheckMachineType") || "";
+    const localRes = await getBomParaDataFromLocalStorage(task.sku || "", task.machine || "", moldModelSafe, machineModelStr, machineTypeSafe);
+    
+    if (localRes[0] === "OK") {
+      let arrInjStdParaData = localRes[1] || [];
+      window["arrInjStdParaData_" + index] = arrInjStdParaData;
+
+      let arrMoldSplit = Array.from(new Set(arrInjStdParaData.map(function(x){ return x[0]; })));
+      let theadPara = $("#parameterInjectionTheadID_" + index);
+      let tbodyPara = $("#parameterInjectionTbodyID_" + index);
+
+      if (arrInjStdParaData.length > 0) {
+        if (arrMoldSplit.length < 2) {
+          if (arrInjStdParaData[0][6]) { $("#changeReason_" + index).text("工艺卡变更原因【" + arrInjStdParaData[0][6] + "】"); }
+          let arrInjParaTemp = arrInjStdParaData.map(function(x){ return [x[1], x[2], x[3], x[4], x[5]]; });
+          let arrInjParaData = VHDeformation2(arrInjParaTemp, 3);
+          renderParameterTableHTML(arrInjParaData, theadPara, tbodyPara);
+        } else {
+          $("#selectSplitNum_" + index).show();
+          let $selectBox = $("#splitNum_" + index);
+          $selectBox.empty();
+          $selectBox.append("<option value='' selected disabled>请明确选择工艺分步卡别...</option>");
+          for (let m = 0; m < arrMoldSplit.length; m++) {
+            $selectBox.append("<option value='" + arrMoldSplit[m] + "'>" + arrMoldSplit[m] + "</option>");
+          }
+
+          $selectBox.on("change", function() {
+            let selectedVal = $(this).val();
+            let subFiltered = arrInjStdParaData.filter(function(x){ return x[0] == selectedVal; });
+            if (subFiltered[0] && subFiltered[0][6]) { $("#changeReason_" + index).text("工艺卡变更原因【" + subFiltered[0][6] + "】"); }
+            let subParaTemp = subFiltered.map(function(x){ return [x[1], x[2], x[3], x[4], x[5]]; });
+            let subParaData = VHDeformation2(subParaTemp, 3);
+            renderParameterTableHTML(subParaData, theadPara, tbodyPara);
+          });
+        }
+      }
+
+    } else {
+      showFatalError("设备标准工艺卡匹配故障：" + localRes[1] + "<br><br><b>请移步主看板校验主数据维护情况！</b>");
+    }
+  }
+
+  /**
+   * 将解析出来的行列规整数据拼装为标准的 HTML 输入框矩阵
+   */
+  function renderParameterTableHTML(arrInjParaData, theadPara, tbodyPara) {
+    theadPara.empty();
+    tbodyPara.empty();
+
+    let paraCol = arrInjParaData[0].length / 4;
+    let addRowHeadParaStr = "<tr>";
+    for (let i = 0; i < paraCol; i++) {
+      addRowHeadParaStr += "<th style='text-align:center;width:14%'>工艺参数</th><th style='text-align:center;width:6%'>单位</th><th style='text-align:center;width:14%'>实际输入值</th>";
+    }
+    addRowHeadParaStr += "</tr>";
+    theadPara.append(addRowHeadParaStr);
+
+    for (let i = 0; i < arrInjParaData.length; i++) {
+      let addRowTbodyParaStr = "<tr>";
+      for (let j = 0; j < arrInjParaData[0].length - 3; j = j + 4) {
+        if (arrInjParaData[i][j + 1] != "NA") {
+          addRowTbodyParaStr += "<td style='text-align:center'><input class='form-control' style='border:0;background-color:unset;font-size:12px;' type='text' value='" + arrInjParaData[i][j] + "' disabled></td>" +
+                                "<td style='text-align:center'><input class='form-control' style='border:0;background-color:unset;font-size:12px;' type='text' value='" + arrInjParaData[i][j + 1] + "' disabled></td>" +
+                                "<td style='text-align:center'><input class='form-control' style='border:0;font-size:small' type='number' inputmode='decimal' placeholder='范围对仗…'></td>";
+        } else {
+          let strDefaulSelect = arrInjParaData[i][j + 3];
+          if (strDefaulSelect != "") {
+            let arrDefaultSelectOption = strDefaulSelect.split("/");
+            let strDefaultSelectOption = "<option selected></option>" + arrDefaultSelectOption.map(v => { return "<option>" + v + "</option>"; }).join("");
+            addRowTbodyParaStr += "<td style='text-align:center'><input class='form-control' style='border:0;background-color:unset;font-size:12px;' type='text' value='" + arrInjParaData[i][j] + "' disabled></td>" +
+                                  "<td style='text-align:center'><input class='form-control' style='border:0;background-color:unset;font-size:12px;' type='text' value='" + arrInjParaData[i][j + 1] + "' disabled></td>" +
+                                  "<td style='text-align:center'><select class='form-control' style='border:0;font-size:small'>" + strDefaultSelectOption + "</select></td>";
+          } else {
+            addRowTbodyParaStr += "<td style='text-align:center'><input class='form-control' style='border:0;background-color:unset;font-size:12px;' type='text' value='" + arrInjParaData[i][j] + "' disabled></td>" +
+                                  "<td style='text-align:center'><input class='form-control' style='border:0;background-color:unset;font-size:12px;' type='text' value='" + arrInjParaData[i][j + 1] + "' disabled></td>" +
+                                  "<td style='text-align:center'><input class='form-control' style='border:0;font-size:small' type='text' placeholder='范围对仗…'></td>";
+          }
+        }
+      }
+      addRowTbodyParaStr += "</tr>";
+      tbodyPara.append(addRowTbodyParaStr);
+    }
+  }
+
+  /**
+   * 离线就地比对大数据库的核心参数逻辑
+   */
+  async function getBomParaDataFromLocalStorage(materialInputId, lineInputId, moldModel, machineModel, machineType) {
+    let arrSsInjPara = [];
+    try {
+      let arrJsonData = arrInjAllPlanParaData;
+      let arrInjMachine = lineInputId.toString().split(",");
+      let arrInjSku = materialInputId.toString().split(",");
+      let arrMoldModel = moldModel.toString().split(",");
+      let arrMachineModel = machineModel.toString().split(",");
+      let arrMachineType = machineType.toString().split(",");
+
+      for (let m = 0; m < arrInjMachine.length; m++) {
+        let arrInjSplitSku = arrInjSku[m].split("|");
+        let arrJsonInjPara = arrJsonData.filter(v => { return v.模具编码 == arrMoldModel[m] && v.机型 + v.自动化分组 == arrMachineType[m] + arrMachineModel[m] && v.状态 == "生效"; });
+        let arrSsInjParaSku = arrJsonInjPara.filter(v => { return checkTrue(arrInjSplitSku, v.SKU) && v.SKU != "NA"; }).map(v => { return v.SKU; }).join("");
+        let arrSpecialSku = [];
+        let specialSku = "NA";
+        for (let i = 0; i < arrInjSplitSku.length; i++) {
+          if (arrSsInjParaSku.indexOf(arrInjSplitSku[i]) != -1) { arrSpecialSku.push(arrInjSplitSku[i]); }
+        }
+        if (arrSpecialSku.length > 0) { specialSku = arrSpecialSku[0]; }
+        
+        let arrSsInjParaJson = arrJsonInjPara.filter(v => { return v.模具编码 == arrMoldModel[m] && v.机型 + v.自动化分组 == arrMachineType[m] + arrMachineModel[m] && v.SKU.toString().indexOf(specialSku) != -1 && specialSku != "" && v.状态 == "生效"; });
+        for (let i = 0; i < arrSsInjParaJson.length; i++) {
+          let arrParaJsonTemp = JSON.parse(arrSsInjParaJson[i]["工艺参数"]);
+          for (let j = 0; j < arrParaJsonTemp.length; j++) {
+            if (arrParaJsonTemp[j]["检查部门"].toString().indexOf("设备") != -1 && arrParaJsonTemp[j]["设定下限"].toString() != "9999") {
+              arrSsInjPara.push([arrSsInjParaJson[i]["分序类别"] + "【" + arrSsInjParaJson[i]["模穴数"] + "-" + arrSsInjParaJson[i]["BigBundle"] + "】", arrParaJsonTemp[j]["工艺参数"], arrParaJsonTemp[j]["单位"], arrParaJsonTemp[j]["设定下限"], arrParaJsonTemp[j]["设定上限"], arrParaJsonTemp[j]["预设值"], arrSsInjParaJson[i]["变更原因"]]);
+            }
+          }
+        }
+
+        if (arrSsInjPara.length < 1) {
+          let arrSsInjParaJsonNA = arrJsonInjPara.filter(v => { return v.模具编码 == arrMoldModel[m] && v.机型 + v.自动化分组 == arrMachineType[m] + arrMachineModel[m] && v.SKU == "NA" && v.状态 == "生效"; });
+          for (let i = 0; i < arrSsInjParaJsonNA.length; i++) {
+            let arrParaJsonTemp = JSON.parse(arrSsInjParaJsonNA[i]["工艺参数"]);
+            for (let j = 0; j < arrParaJsonTemp.length; j++) {
+              if (arrParaJsonTemp[j]["检查部门"].toString().indexOf("设备") != -1 && arrParaJsonTemp[j]["设定下限"].toString() != "9999") {
+                arrSsInjPara.push([arrSsInjParaJsonNA[i]["分序类别"] + "【" + arrSsInjParaJsonNA[i]["模穴数"] + "-" + arrSsInjParaJsonNA[i]["BigBundle"] + "】", arrParaJsonTemp[j]["工艺参数"], arrParaJsonTemp[j]["单位"], arrParaJsonTemp[j]["设定下限"], arrParaJsonTemp[j]["设定上限"], arrParaJsonTemp[j]["预设值"], arrSsInjParaJsonNA[i]["变更原因"]]);
+              }
+            }
+          }
+        }
+      }
+      return ["OK", arrSsInjPara];
+    } catch(e) {
+      return ["NO", e.toString()];
+    }
+  }
+
+  /**
+   * ==========================================
+   * 全局打包批量向后端保存数据
+   * ==========================================
+   */
+  $("#recordSubmit").on("click", async function() {
+    let $btn = $(this);
+    $btn.prop("disabled", true);
+
+    let globalAllErrors = [];
+    let globalSubmitPayloads = [];
+    let activePaneIndexes = [];
+
+    $("#taskTabContent .tab-pane").each(function() { activePaneIndexes.push($(this).data("index")); });
+
+    for (let paneIndex of activePaneIndexes) {
+      if ($("#pane-" + paneIndex).hasClass("techcheck-exists")) { continue; } 
+
+      let userNameID = $("#usernameID_" + paneIndex).val();
+      let SAPCodeID = $("#SAPCodeID_" + paneIndex).val();
+      let lineInputId = $("#lineInputBoxID_" + paneIndex).val();
+      let materialInputID = $("#materialInputID_" + paneIndex).val();
+      let workshop = $("#workshopID_" + paneIndex).val();
+      let moldModel = sessionStorage.getItem("techFirstCheckMoldModel") || "";
+
+      let parameterResult = checkInjParameterAndCompare(paneIndex);
+      let arrErrorParameter = parameterResult[0]; 
+      let strParameterRecord = parameterResult[1];
+
+      let prefixedErrors = arrErrorParameter.map(err => ["【" + lineInputId + "】" + err[0], err[1], err[2]]);
+      globalAllErrors = globalAllErrors.concat(prefixedErrors);
+
+      globalSubmitPayloads.push({
+        userNameID: userNameID,
+        SAPCodeID: SAPCodeID,
+        workshop: workshop,
+        materialInputID: materialInputID,
+        lineInputId: lineInputId,
+        arrInjParameter: parameterResult[2], 
+        moldModel: moldModel
+      });
+    }
+
+    if (globalSubmitPayloads.length === 0) {
+      Swal.fire({icon: "warning", title: "没有可提交的活跃任务"});
+      return $btn.prop("disabled", false);
+    }
+
+    let passSelectResons = $("#passSelectResons").val();
+    let reportSelectResons = $("#reportSelectResons").val();
+    let exemptionId = $("#exemptionId").val().trim();
+    let PasswordInputBoxID = $("#PasswordInputBoxID").val().trim();
+    let exemptionResons = $("#exemptInputBoxID").val().trim(); 
+
+    let globalWorkshop = globalSubmitPayloads[0].workshop;
+    let arrExemption = checkForemanExemption(exemptionId, PasswordInputBoxID, globalWorkshop);
+    let totalErrorsWithExempt = globalAllErrors.concat(arrExemption);
+    let emailIf = 0;
+    
+    if (globalAllErrors.length > 0 && exemptionId !== "" && arrExemption.length > 0) {
+      totalErrorsWithExempt.unshift(["检验条目", "实际测量", "判定结果"]);
+      Swal.fire({allowOutsideClick: false, width: "70%", icon: "error", title: "验证未通过（高级权限授权失效）", html: General_Htmltable_UI(totalErrorsWithExempt, 100)});
+      return $btn.prop("disabled", false);
+    } 
+    else if (globalAllErrors.length > 0 && exemptionId === "") {
+      let arrTemp = globalAllErrors.slice();
+      arrTemp.unshift(["检验条目", "实际测量", "判定结果"]);
+      Swal.fire({allowOutsideClick: false, width: "70%", icon: "error", title: "发现工艺参数超差，必须由高级技术员授权方可提交", html: General_Htmltable_UI(arrTemp, 100)});
+      return $btn.prop("disabled", false);
+    }
+    else if (globalAllErrors.length > 0 && exemptionId !== "" && arrExemption.length < 1) {
+      exemptionResons = exemptionResons !== "" ? exemptionResons : JSON.stringify(globalAllErrors);
+      emailIf = 1; 
+    }
+
+    Swal.fire({title: "校验放行", text: "正在安全打包参数并向服务器发送提交...", allowOutsideClick: false, didOpen: () => Swal.showLoading()});
+
+    try {
+      globalSubmitPayloads.forEach(p => {
+        p.passSelectResons = passSelectResons;
+        p.reportSelectResons = reportSelectResons;
+        p.exemptionId = exemptionId;
+        p.exemptionResons = exemptionResons;
+        p.emailIf = emailIf;
+      });
+
+      const res = await new Promise((resolve, reject) => {
+        google.script.run
+          .withFailureHandler(err => reject(err))
+          .withSuccessHandler(res => {
+            if (res[0] === "OK") resolve(res);
+            else reject(new Error(res[1]));
+          })
+          .batchProcessTechFirstConfirm(globalSubmitPayloads); 
+      });
+
+      Swal.fire({icon: "success", title: "设备首件全部保存成功！", timer: 2000, showConfirmButton: false});
+      setTimeout(() => { window.location.href = "about:blank"; }, 2000);
+      
+    } catch(err) {
+      Swal.fire({icon: "error", title: "提交服务器时由于网络波动被中断", text: err.message});
+      $btn.prop("disabled", false);
+    }
+  });
+
+  /**
+   * 参数表单提取并与 IndexedDB 离线标准进行精细化对仗比对
+   */
+  function checkInjParameterAndCompare(paneIndex) {
+    let tbodyParameter = $("#parameterInjectionTbodyID_" + paneIndex);
+    let tbodyParameterRows = tbodyParameter.find("tr").length;
+    let tbodyParameterCols = tbodyParameter.find("tr").eq(0).find("td").length;
+    
+    let arrActParameterRecord = [];
+    let arrActParameter = [];
+    let arrErrorParameter = [];
+
+    for (let i = 0; i < tbodyParameterRows; i++) {
+      arrActParameterRecord = [];
+      for (let j = 0; j < tbodyParameterCols; j++) {
+        let valueTemp = tbodyParameter.find("tr").eq(i).find("td").eq(j).children().val();
+        arrActParameterRecord.push(valueTemp);
+      }
+      arrActParameter.push(arrActParameterRecord);
+    }
+
+    let arrActParameterTemp = HVDeformation2(arrActParameter, 3);
+    let arrActParameterNew = arrActParameterTemp.filter(function(x){ return x[0] != ""; });
+
+    let arrInjStdParaData = window["arrInjStdParaData_" + paneIndex] || [];
+    let arrStdParaDes = arrInjStdParaData.map(function(x){ return x[1]; });
+
+    for (let i = 0; i < arrActParameterNew.length; i++) {
+      let position = arrStdParaDes.indexOf(arrActParameterNew[i][0]);
+      if (position === -1) continue;
+
+      let valueMin = arrInjStdParaData[position][3];
+      let valueMax = arrInjStdParaData[position][4];
+      let inputVal = arrActParameterNew[i][2];
+
+      if (arrInjStdParaData[position][2] != "NA") {
+        if (Number(inputVal) < Number(valueMin) || Number(inputVal) > Number(valueMax)) {
+          arrErrorParameter.push([arrActParameterNew[i][0], inputVal, "不在标准范围 [" + valueMin + " ~ " + valueMax + "]"]);
+        }
+      } else {
+        if (inputVal != valueMin || inputVal != valueMax) {
+          arrErrorParameter.push([arrActParameterNew[i][0], inputVal, "与标准设定不符 [" + valueMin + "]"]);
+        }
+      }
+    }
+
+    let flatArray = [];
+    arrActParameter.forEach(row => {
+      flatArray.push(row[0] || "", row[1] || "", row[2] || "");
+    });
+
+    return [arrErrorParameter, JSON.stringify(arrActParameter), flatArray];
+  }
+
+  function checkTrue(arr, str) {
+    const s = String(str || "");
+    return arr.some(function(x) { return s.indexOf(String(x)) != -1; });
+  }
+
+  /**
+   * 双击系统顶头大标题唤醒查阅工艺标准模态框 (带 000 密码校验及多标签页动态数据挂载)
+   */
+  $doc.on("dblclick", "#viewModalStandardData", async function() {
+    const activePane = $("#taskTabContent .tab-pane.active");
+    const index = activePane.data("index");
+    if (index === undefined) return;
+
+    const { value: text } = await Swal.fire({
+      title: '验证查看权限',
+      input: 'password',
+      inputPlaceholder: '请输入密码……',
+      showCancelButton: true,
+      confirmButtonText: '确定',
+      cancelButtonText: '取消'
+    });
+
+    if (text === "000") {
+      let currentStdParaData = window["arrInjStdParaData_" + index] || [];
+      const $tbodyStdPara = $("#modalTbodyStandardTechnologyID");
+      $tbodyStdPara.empty(); 
+      
+      currentStdParaData.forEach(r => {
+        $tbodyStdPara.append("<tr><td style='text-align:center'>" + r[0] + "</td><td style='text-align:center'>" + r[1] + "</td><td style='text-align:center'>" + r[2] + "</td><td style='text-align:center'>" + r[3] + "</td><td style='text-align:center'>" + r[4] + "</td></tr>");
+      });
+
+      // 【核心修复】：从多机台任务队列中精准提取“当前激活标签页”的特征参数，并兼容老版本
+      let taskQueue = JSON.parse(sessionStorage.getItem("multiTaskQueue") || "[]");
+      let currentTask = taskQueue[index] || {};
+      
+      let moldModel = currentTask.moldModel || sessionStorage.getItem("techFirstCheckMoldModel") || "";
+      let machineModel = currentTask.machineModel || sessionStorage.getItem("techFirstCheckMachineModel") || "";
+      let machineType = currentTask.machineType || sessionStorage.getItem("techFirstCheckMachineType") || "";
+
+      $("#modalStandardMoldModel").val(moldModel);
+      $("#modalStandardMachineModel").val(machineModel);
+      $("#modalStandardMachineType").val(machineType);
+
+      $("#modalStandardData").modal("show");
+      
+    } else if (text !== undefined) {
+      Swal.fire({icon: 'error', title: '验证失败', text: '密码不正确，你没有查看权限', timer: 1500});
+    }
+  });
+
+  $("#reportSelectResons").on("change", function() {
+    if ($(this).val() === "豁免") {
+      $("#divExemptInputBoxContID").show();
+    } else {
+      $("#divExemptInputBoxContID").hide();
+      $("#exemptInputBoxID").val("");
+    }
+  });
+
+  $doc.on("click", ".close-tab", function(e) {
+    e.preventDefault(); e.stopPropagation();
+    let index = $(this).data("index");
+    let mName = $("#lineInputBoxID_" + index).val();
+
+    Swal.fire({
+      title: "确定移除此机台首件任务?",
+      text: "本次提交将不会包含【" + mName + "】的数据",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#d33",
+      confirmButtonText: "确定移除",
+      cancelButtonText: "取消"
+    }).then((result) => {
+      if (result.isConfirmed) {
+        $("#nav-item-" + index).remove();
+        $("#pane-" + index).remove();
+        if ($("#taskTabs .nav-link.active").length === 0) {
+          let $first = $("#taskTabs .nav-link").first();
+          if ($first.length > 0) { $first.tab('show'); } 
+          else { window.location.href = "about:blank"; }
+        }
+      }
+    });
+  });
+
+  function checkForemanExemption(exemptionId, PasswordInputBoxID, workshop) {
+    let arrPassAuth = JSON.parse(localStorage.getItem("allPassAuth") || "[]");
+    let arrId = arrPassAuth.map(function(x){ return x[0]; });
+    let position = arrId.indexOf(exemptionId);
+    let passAuth = [];
+    if (position > -1) { passAuth = [arrPassAuth[position][1], arrPassAuth[position][2], arrPassAuth[position][3], arrPassAuth[position][4]]; }
+    
+    let exemptionPassReson = [];
+    if (exemptionId !== "" && passAuth.length === 0) { exemptionPassReson.push(["权限校验", "", "未激活高级技术员授权资格"]); return exemptionPassReson; }
+    if (passAuth.length > 0) {
+      if (passAuth[0] != PasswordInputBoxID) { exemptionPassReson.push(["不能跳过", "", "主管技术员验证密码不正确"]); }
+      if (passAuth[1] != "Equ") { exemptionPassReson.push(["不能跳过", "", "该账号不属于设备工程技术组"]); }
+      if (passAuth[2] != "INJ") { exemptionPassReson.push(["不能跳过", "", "不属于注塑工序工程人员"]); }
+      if (passAuth[3] != "YT") { exemptionPassReson.push(["不能跳过", "", "无权执行工艺参数越权豁免"]); }
+    }
+    return exemptionPassReson;
+  }
+
+  function showFatalError(msg) {
+    Swal.fire({ allowOutsideClick: false, icon: "error", title: "数据死锁拦截", html: "<p style='font-size:16px'>" + msg + "</p>", showConfirmButton: true, confirmButtonText: "我知道了" });
+  }
+
+  function VHDeformation2(arrSs, splitCol) {
+    let arrTemp = [];
+    for (let i = 0; i < arrSs.length; i++) {
+      arrTemp.push([]);
+      for (let j = 0; j < arrSs[0].length; j++) { arrTemp[arrTemp.length - 1].push(arrSs[i][j]); }
+    }
+    let rowTotal = Math.ceil(arrTemp.length / splitCol);
+    for (let n = arrTemp.length; n < rowTotal * splitCol; n++) { arrTemp.push(["", "", "", "", ""]); }
+    let arrData = []; let r = 0; let l = 0;
+    for (let i = 0; i < rowTotal * splitCol; i++) {
+      if (l == 0) { arrData.push([arrTemp[i][0], arrTemp[i][1], "", arrTemp[i][4]]); l = l + 1; }
+      else { arrData[r].push(arrTemp[i][0], arrTemp[i][1], "", arrTemp[i][4]); l = l + 1; }
+      if (l >= splitCol) { r = r + 1; l = 0; }
+    }
+    return arrData;
+  }
+
+  function HVDeformation2(arrSs, splitCol) {
+    let arrData = [];
+    for (let i = 0; i < arrSs.length; i++) {
+      for (let j = 0; j < arrSs[0].length; j = j + 3) {
+        arrData.push([arrSs[i][j + 0]]);
+        for (let k = 1; k < splitCol; k++) { arrData[arrData.length - 1].push(arrSs[i][j + k]); }
+      }
+    }
+    return arrData;
+  }
+
+  function General_Htmltable_UI(data, scale) {
+    let arrWidths = [45, 30, 25];
+    let htmltable = "<table border='1' style='table-layout:fixed;border-collapse:separate;font-size:small;color:red;width:" + scale + "%;'>";
+    for (let i = 0; i < data.length; i++) {
+      htmltable += "<tr>";
+      for (let j = 0; j < data[i].length; j++) {
+        if (i == 0) { htmltable += "<td style='text-align:center;background-color:#CCFFFF;color:black;font-weight:bold;width:" + arrWidths[j] + "%'>" + data[i][j] + "</td>"; }
+        else if (i > 0 && i % 2 == 0) { htmltable += "<td style='text-align:center;background-color:#E8E8E8'>" + data[i][j] + "</td>"; }
+        else { htmltable += "<td style='text-align:center'>" + data[i][j] + "</td>"; }
+      }
+      htmltable += "</tr>";
+    }
+    htmltable += "</table>";
+    return htmltable;
+  }
+
+  function updateGlobalTitle(index) {
+    const mName = $("#lineInputBoxID_" + index).val();
+    $("#viewModalStandardData").text("高露洁三笑注塑设备首件参数确认【" + mName + "】");
+  }
+</script>

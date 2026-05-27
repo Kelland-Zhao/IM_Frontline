@@ -1,0 +1,506 @@
+<style>
+  #taskTabs {
+    border-bottom: 2px solid #dee2e6;
+    margin-bottom: 0px;
+    padding-left: 10px;
+  }
+  
+  /* 2. 强行抵消 HTML 模板内部第一行自带的上边距 (mt-3/mt-4 等) */
+  #taskTabContent .tab-pane > .row:first-child,
+  #taskTabContent .tab-pane > div:first-child {
+    margin-top: 5px !important;
+    padding-top: 0 !important;
+  }
+  
+  /* 3. 去掉多余的换行符带来的高度（如果有的话） */
+  #taskTabContent .tab-pane br:first-child {
+    display: none !important;
+  }
+
+  #taskTabs .nav-item { 
+    margin-bottom: -2px; 
+  }
+
+  #taskTabs .nav-link {
+    border: 1px solid transparent;
+    border-top-left-radius: 8px; 
+    border-top-right-radius: 8px;
+    padding: 0.6rem 1.2rem; 
+    color: #6c757d !important; 
+    background-color: #f8f9fa;
+    margin-right: 5px; 
+    transition: all 0.2s ease-in-out; 
+    display: flex;
+    align-items: center; 
+    font-size: 14px;
+  }
+
+  #taskTabs .nav-link:hover { 
+    background-color: #e2e6ea; 
+    border-color: #e9ecef #e9ecef #dee2e6;
+  }
+
+  #taskTabs .nav-link.active {
+    color: #c9302c !important; 
+    background-color: #ffffff; 
+    border-color: #dee2e6 #dee2e6 #ffffff;
+    border-bottom: 2px solid #ffffff; 
+    box-shadow: 0 -4px 8px rgba(0,0,0,0.05); 
+    font-weight: bold;
+  }
+
+  .close-tab {
+    margin-left: 12px;
+    cursor: pointer; 
+    color: #adb5bd; 
+    font-size: 1.4em; 
+    line-height: 1; 
+    transition: transform 0.2s, color 0.2s;
+  }
+
+  .close-tab:hover { 
+    color: #dc3545 !important;
+    transform: scale(1.2); 
+  }
+</style>
+
+<script>
+  const $doc = $(document);
+  
+  /**
+   * 显示普通信息提示弹窗
+   * @param {string} text - 需要提示的文本内容
+   * @param {Object} [conf={}] - SweetAlert 的附加配置项
+   * @returns {Promise} 返回 Swal 实例
+   */
+  const swalInfo = function(text, conf) {
+    if (!conf) conf = {};
+    return Swal.fire(Object.assign({allowOutsideClick: false, icon: "info", title: "提醒", text: text, showConfirmButton: false}, conf));
+  };
+
+  /**
+   * 显示错误信息提示弹窗
+   * @param {string} text - 需要提示的错误文本内容
+   * @param {Object} [conf={}] - SweetAlert 的附加配置项
+   * @returns {Promise} 返回 Swal 实例
+   */
+  const swalError = function(text, conf) {
+    if (!conf) conf = {};
+    return Swal.fire(Object.assign({allowOutsideClick: false, icon: "error", title: "提醒", text: text, showConfirmButton: true}, conf));
+  };
+  
+  let arrAllMachineInfo = [];
+  let arrInjAllMachineType = [];
+  let arrInjAll5SAMLink = [];
+  let arrInjAllHandOverRecord = [];
+
+  /**
+   * 页面 DOM 加载完毕后执行的初始化主入口
+   * 负责读取缓存、构建多标签页、初始化每个机台的交接班任务面板
+   */
+  $(document).ready(async function () {
+    let taskQueue = JSON.parse(sessionStorage.getItem("multiTaskQueue") || "[]");
+    if (taskQueue.length === 0) {
+      taskQueue.push({
+        machine: sessionStorage.getItem("handOverMachine"),
+        sku: sessionStorage.getItem("handOverSku") || "NA"
+      });
+    }
+
+    swalInfo("正在加载多机台交接班任务...", { footer: "<p>完成窗口会自动关闭</p>" });
+
+    // 从 IndexedDB 获取基础配置信息 (点检表 PDF 和 重复记录用)
+    arrAllMachineInfo = await idbGet("sSArrAllMachineInfo") || [];
+    arrInjAllMachineType = await idbGet("sSArrInjAllMachineType") || [];
+    arrInjAll5SAMLink = await idbGet("sSArrInjAll5SAMLink") || [];
+    arrInjAllHandOverRecord = await idbGet("sSArrInjAllHandOverRecord") || [];
+
+    // 画出多标签页 HTML (彻底防断行解析错误)
+    for (let i = 0; i < taskQueue.length; i++) {
+      const task = taskQueue[i];
+      const mName = task.machine.split(",")[0]; 
+      const isFirst = (i === 0);
+
+      $("#taskTabs").append(
+        "<li class='nav-item' id='nav-item-" + i + "'>" +
+          "<a class='nav-link " + (isFirst ? "active" : "") + "' id='tab-btn-" + i + "' data-toggle='tab' href='#pane-" + i + "'>" +
+            mName + 
+            " <span class='close-tab' data-index='" + i + "' title='移除此机台'>&times;</span>" +
+          "</a>" +
+        "</li>"
+      );
+      
+      let templateHtml = $("#handOverFormTemplate").html();
+      templateHtml = templateHtml.replace(/id=["']([^"']+)["']/g, "id=\"$1_" + i + "\"");
+      templateHtml = templateHtml.replace(/for=["']([^"']+)["']/g, "for=\"$1_" + i + "\"");
+      templateHtml = templateHtml.replace(/name=["']([^"']+)["']/g, "name=\"$1_" + i + "\"");
+
+      $("#taskTabContent").append(
+        "<div class='tab-pane fade " + (isFirst ? "show active" : "") + "' id='pane-" + i + "' data-index='" + i + "'>" +
+          templateHtml +
+        "</div>"
+      );
+
+      // 初始化单机台回填与 PDF 渲染
+      initSingleTaskPane(i, task);
+    }
+    
+    Swal.close();
+  });
+
+  /**
+   * 移除指定标签页 (Tab) 及对应数据的点击事件处理逻辑
+   * 绑定在动态生成的关闭按钮上
+   */
+  $doc.on("click", ".close-tab", function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      let index = $(this).data("index");
+      let mName = $("#lineInputBoxID_" + index).val();
+
+      Swal.fire({
+        title: "确定要移除此机台?",
+        text: "本次将不提交【" + mName + "】的交接班数据",
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonColor: "#d33",
+        cancelButtonColor: "#3085d6",
+        confirmButtonText: "移除",
+        cancelButtonText: "取消"
+      }).then(function(result) {
+        if (result.isConfirmed) {
+          $("#nav-item-" + index).remove();
+          $("#pane-" + index).remove();
+
+          let currentQueue = JSON.parse(sessionStorage.getItem("multiTaskQueue") || "[]");
+          currentQueue = currentQueue.filter(function(t) { return t.machine !== mName; });
+          sessionStorage.setItem("multiTaskQueue", JSON.stringify(currentQueue));
+
+          if ($("#taskTabs .nav-link.active").length === 0) {
+            let $firstAvailable = $("#taskTabs .nav-link").first();
+            if ($firstAvailable.length > 0) {
+              $firstAvailable.tab("show");
+            } else {
+              Swal.fire({icon: "info", title: "任务已全部清空", timer: 1500, showConfirmButton: false});
+              setTimeout(function() { window.location.href="about:blank"; }, 1500);
+            }
+          }
+        }
+      });
+  });
+
+  // 缓存获取封装
+  let dbPromise = null;
+  
+  /**
+   * 初始化并连接 IndexedDB 数据库
+   * @returns {Promise} 返回包含 IndexedDB 实例的 Promise
+   */
+  function openDB() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise(function(resolve, reject) {
+      const req = indexedDB.open("cp_app_db", 1);
+      req.onupgradeneeded = function(e) {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains("kv")) {
+          db.createObjectStore("kv");
+        }
+      };
+      req.onsuccess = function() { resolve(req.result); };
+      req.onerror = function() { reject(req.error); };
+    });
+    return dbPromise;
+  }
+  
+  /**
+   * 从 IndexedDB 中读取指定键的值
+   * @param {string} key - 存储的键名
+   * @returns {Promise<any>} 返回对应的值
+   */
+  async function idbGet(key) {
+    const db = await openDB();
+    return new Promise(function(resolve, reject) {
+      const tx = db.transaction("kv", "readonly");
+      const req = tx.objectStore("kv").get(key);
+      req.onsuccess = function() { resolve(req.result); };
+      req.onerror = function() { reject(req.error); };
+    });
+  }
+  
+  /**
+   * 将指定键值对写入 IndexedDB
+   * @param {string} key - 存储的键名
+   * @param {any} value - 存储的值
+   * @returns {Promise<boolean>} 操作成功返回 true
+   */
+  async function idbSet(key, value) {
+    const db = await openDB();
+    return new Promise(function(resolve, reject) {
+      const tx = db.transaction("kv", "readwrite");
+      tx.objectStore("kv").put(value, key);
+      tx.oncomplete = function() { resolve(true); };
+      tx.onerror = function() { reject(tx.error); };
+    });
+  }
+
+  /**
+   * 初始化单个交接班任务面板的数据回填与点检表 PDF 加载
+   * @param {number} index - 当前标签页的索引
+   * @param {Object} task - 当前处理的机台任务对象
+   */
+  function initSingleTaskPane(index, task) {
+    let now = new Date();
+    $("#usernameID_" + index).val(sessionStorage.getItem("viewName"));
+    $("#SAPCodeID_" + index).val(sessionStorage.getItem("viewId"));
+    $("#timeInputID_" + index).val(dayjs(now).format("YYYY-MM-DD HH:mm:ss"));
+    $("#lineInputBoxID_" + index).val(task.machine);
+    $("#materialInputBoxID_" + index).val(task.sku);
+
+    let singleMachine = task.machine.split(",")[0].substring(0,8);
+    let workshop = "";
+    if(singleMachine.charAt(1) == "0" || singleMachine.charAt(1) == "1") { 
+      workshop = "TB1"; 
+    }
+    else if(singleMachine.charAt(1) == "2") { 
+      workshop = "TB2"; 
+    }
+    $("#workshopID_" + index).val(workshop);
+    
+    // 【新增核心修复】：查验该机台当班是否已经做过交接班！
+    let isDone = arrInjAllHandOverRecord.some(function(v) { return v[0] == singleMachine; });
+    if (isDone) {
+      $("#leftContent_" + index).prepend(
+        "<div class='alert alert-danger' style='margin-bottom: 10px; padding: 5px;'>" +
+          "<strong>注意：</strong>机台 " + singleMachine + " 当班已有交接班数据！请勿重复提交。你可以点 × 移除它。" +
+        "</div>"
+      );
+      $("#pane-" + index).addClass("handover-exists"); // 标记该标签页，禁止提交
+    }
+
+    // 【寻找并渲染右侧 PDF】
+    let arrCurrentMachineInfo = arrAllMachineInfo.filter(function(v) { return v[0].trim() == singleMachine.trim(); });
+    if(arrCurrentMachineInfo.length > 0){
+      let strMachineType = arrCurrentMachineInfo[0][3];
+      let positionStrMachiceType = arrInjAllMachineType.indexOf(strMachineType);
+      if(positionStrMachiceType != -1){
+        let checkListUrl = arrInjAll5SAMLink[positionStrMachiceType];
+        $("#documentID_" + index).attr("src", "https://drive.google.com/file/d/" + checkListUrl + "/preview");
+      }
+    }
+  }
+
+  /**
+   * 计算并返回当前的逻辑班次信息
+   * @returns {string} 班次信息（如: "2026-05-16_1"）
+   */
+  function getShiftInfo() {
+    let now = new Date();
+    let nowDate = dayjs(now).format("YYYY-MM-DD");
+    let nextDate = dayjs(new Date(now.getTime() + 24 * 3600 * 1000)).format("YYYY-MM-DD");
+    let nowHourMinute = dayjs(now).format("HH:mm");
+    let shift = 0;
+    let nowDateShift = "";
+    
+    if(nowHourMinute > "23:44" && nowHourMinute < "24:00"){ 
+      shift = 1;
+      nowDateShift = nextDate + "_" + shift; 
+    }
+    else if(nowHourMinute >= "00:00" && nowHourMinute < "07:45"){ 
+      shift = 1;
+      nowDateShift = nowDate + "_" + shift; 
+    }
+    else if(nowHourMinute > "07:44" && nowHourMinute < "15:45"){ 
+      shift = 2;
+      nowDateShift = nowDate + "_" + shift; 
+    }
+    else if(nowHourMinute > "15:44" && nowHourMinute < "23:45"){ 
+      shift = 3;
+      nowDateShift = nowDate + "_" + shift; 
+    }
+    return nowDateShift;
+  }
+
+  /**
+   * 触发所有标签页的数据校验并批量提交给后端的点击事件
+   */
+  $("#recordSubmit").on("click", async function() {
+    let $btn = $(this);
+    $btn.prop("disabled", true);
+
+    let globalAllErrors = [];
+    let globalSubmitPayloads = [];
+    let nowDateShift = getShiftInfo();
+    let nowTime = dayjs().format("YYYY-MM-DD HH:mm:ss");
+
+    let activePaneIndexes = [];
+    $("#taskTabContent .tab-pane").each(function() {
+      activePaneIndexes.push($(this).data("index"));
+    });
+
+    let hasAnyError = false; // 是否触发领班豁免逻辑
+
+    // 1. 扫描所有的 Tab 进行规则校验
+    for (let i = 0; i < activePaneIndexes.length; i++) {
+      let paneIndex = activePaneIndexes[i];
+  
+      // 已经提交过的机台直接跳过！
+      if ($("#pane-" + paneIndex).hasClass("handover-exists")) {
+          continue; 
+      }
+
+      let userNameID = $("#usernameID_" + paneIndex).val();
+      let SAPCodeID = $("#SAPCodeID_" + paneIndex).val();
+      let lineInputId = $("#lineInputBoxID_" + paneIndex).val();
+      if (!lineInputId) continue;
+      let workshop = $("#workshopID_" + paneIndex).val();
+      
+      let checkErrorNum = 0; // 该机台未打勾数
+      let remarkNum = 0;     // 该机台异常备注不匹配数
+
+      // 提取该 Tab 的 3 个 Checkbox 和 Comment
+      let arrSingleRadioResult = [];
+      let questionNames = ["安全检查", "GMP检查", "5S/AM检查"];
+      
+      for(let j = 1; j <= 3; j++){
+        let isChecked = $("#handoverCheck" + j + "_" + paneIndex).is(":checked");
+        let comment = $("#handoverComment" + j + "_" + paneIndex).val().trim();
+        arrSingleRadioResult.push(isChecked, comment);
+
+        if(!isChecked) checkErrorNum++;
+        if((!isChecked && comment === "") || (isChecked && comment !== "")) {
+          remarkNum++;
+        }
+      }
+
+      if (remarkNum > 0) {
+         globalAllErrors.push(["【" + lineInputId + "】", "未备注异常或错误备注", "检查不通过：发现问题未备注异常，或未发现问题却备注了异常"]);
+      }
+      if (checkErrorNum > 0) {
+         hasAnyError = true; // 有未打勾的，必须触发领班确认
+      }
+
+      // 组装传给后端的数组 [0:车间, 1:机台, 2:工号, 3:时间, 4-9:答题, 10:领班, 11:意见, 12:班次, 13:姓名, 14:车间]
+      let arrMachine = lineInputId.split(",");
+      for (let k = 0; k < arrMachine.length; k++) {
+        let singleMachine = arrMachine[k].substr(0, 8);
+        let singlePayload = [
+          workshop,              // 0
+          singleMachine,         // 1
+          SAPCodeID,             // 2
+          nowTime,               // 3
+          arrSingleRadioResult[0], arrSingleRadioResult[1], // 4, 5
+          arrSingleRadioResult[2], arrSingleRadioResult[3], // 6, 7
+          arrSingleRadioResult[4], arrSingleRadioResult[5], // 8, 9
+          "",                    // 10: 领班工号 (占位)
+          "",                    // 11: 处理意见 (占位)
+          nowDateShift,          // 12: 日期班次
+          userNameID,            // 13: 姓名
+          workshop               // 14: 车间
+        ];
+        globalSubmitPayloads.push(singlePayload);
+      }
+    }
+
+    if (globalSubmitPayloads.length === 0) {
+        Swal.fire({icon: "warning", title: "没有可提交的任务，或全部已提交过。"});
+        return $btn.prop("disabled", false);
+    }
+
+    if (globalAllErrors.length > 0) {
+      let errHtml = "<table class='table table-sm table-bordered text-center' style='font-size:13px;'><tr><th>机台</th><th>错误类型</th><th>详情</th></tr>";
+      globalAllErrors.forEach(function(err) {
+         errHtml += "<tr><td>" + err[0] + "</td><td>" + err[1] + "</td><td class='text-danger'>" + err[2] + "</td></tr>";
+      });
+      errHtml += "</table>";
+      Swal.fire({icon: "error", title: "验证不通过", html: errHtml, width: "80vw"});
+      return $btn.prop("disabled", false);
+    }
+
+    // ==========================================
+    // 领班豁免逻辑验证 (如果有发现异常未打勾项)
+    // ==========================================
+    let reportSelectReasons = $("#reportSelectReasons").val();
+    let exemptionId = $("#SAPCodeInputBoxID").val().trim();
+    let PasswordInputBoxID = $("#PasswordInputBoxID").val().trim();
+    let globalWorkshop = globalSubmitPayloads[0][0];
+    
+    if (hasAnyError) {
+      if (exemptionId === "" || PasswordInputBoxID === "") {
+        Swal.fire({allowOutsideClick: false, icon: "error", title: "提醒", text: "检查不通过：发现设备异常，必须由领班输入工号和密码确认！", showConfirmButton: true});
+        return $btn.prop("disabled", false);
+      }
+      
+      let arrPassAuth = JSON.parse(localStorage.getItem("allPassAuth") || "[]");
+      let arrId = arrPassAuth.map(function(x) { return x[0]; });
+      let position = arrId.indexOf(exemptionId);
+      let exemptionPassReson = [];
+      
+      if(position > -1){
+        let passAuth = [arrPassAuth[position][1], arrPassAuth[position][2], arrPassAuth[position][3], arrPassAuth[position][4]];
+        if(passAuth[0] != PasswordInputBoxID) exemptionPassReson.push("密码不正确");
+        if(passAuth[1] != globalWorkshop) exemptionPassReson.push("不是本车间的");
+        if(passAuth[2] != "INJ") exemptionPassReson.push("不是本工序的");
+        if(passAuth[3] != "Y") exemptionPassReson.push("无豁免权限");
+      } else {
+        exemptionPassReson.push("未找到领班账号");
+      }
+
+      if(exemptionPassReson.length > 0){
+        Swal.fire({allowOutsideClick: false, icon: "error", title: "提醒", text: "豁免不通过：" + exemptionPassReson.join(", "), showConfirmButton: true});
+        return $btn.prop("disabled", false);
+      }
+    } else {
+      // 全都合格（打勾了），清空领班信息
+      reportSelectReasons = "";
+      exemptionId = "";
+    }
+
+    // 把合格的领班信息补回到所有的 Payload 中
+    for (let i = 0; i < globalSubmitPayloads.length; i++) {
+       globalSubmitPayloads[i][10] = exemptionId;
+       globalSubmitPayloads[i][11] = reportSelectReasons;
+    }
+
+    // ==========================================
+    // 发送至服务器
+    // ==========================================
+    Swal.fire({title: "校验通过", text: "正在打包数据并一次性发送至服务器...", allowOutsideClick: false, didOpen: function() { Swal.showLoading(); }});
+    
+    try {
+      const res = await new Promise(function(resolve, reject) {
+        google.script.run
+          .withFailureHandler(function(err) { reject(err); })
+          .withSuccessHandler(function(res) {
+            if (res[0] === "OK") resolve(res);
+            else reject(new Error(res[1]));
+          })
+          .batchProcessHandOver(globalSubmitPayloads); // 【使用专属批量接口】
+      });
+      
+      // 更新本地缓存
+      let arrInjAllHandOverRecord = await idbGet("sSArrInjAllHandOverRecord") || [];
+      let arrRecordBack = res[1]; // 后台返回的数据 (即我们送过去的 payload 原样返回)
+      let arrInjAllHandOverRecord_Machine = arrInjAllHandOverRecord.map(function(v) { return v[0]; });
+      
+      for(let m = 0; m < arrRecordBack.length; m++){
+        // 提取机台号 (index 1)
+        let position = arrInjAllHandOverRecord_Machine.indexOf(arrRecordBack[m][1]);
+        if(position != -1){
+          arrInjAllHandOverRecord[position][1] = arrInjAllHandOverRecord[position][1] + 1;
+          arrInjAllHandOverRecord[position][3].push(arrRecordBack[m]);
+        } else {
+          arrInjAllHandOverRecord.push([arrRecordBack[m][1], 1, "CheckRecord", [arrRecordBack[m]]]);
+        }
+      }
+      await idbSet("sSArrInjAllHandOverRecord", arrInjAllHandOverRecord);
+      
+      Swal.fire({icon: "success", title: "交接班记录保存成功", timer: 2000, showConfirmButton: false});
+      setTimeout(function() { window.location.href = "about:blank"; }, 2000);
+      
+    } catch (error) {
+      Swal.fire({icon: "error", title: "提交过程中发生中断", text: error.message});
+      $btn.prop("disabled", false);
+    }
+  });
+</script>

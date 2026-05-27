@@ -1,0 +1,314 @@
+<script>
+  /**
+   * ==========================================
+   * 页面安全防护设置
+   * ==========================================
+   * 禁用鼠标右键菜单与浏览器的开发者调试快捷键 (F12, Ctrl+Shift+I)
+   */
+  let execUrl = "";
+  window.onload = function() {       
+    document.onkeydown = function() {
+      let e = window.event || arguments[0];
+      if (e.keyCode == 123) {         
+        return false;
+      } else if ((e.ctrlKey) && (e.shiftKey) && (e.keyCode == 73)) {
+        return false;
+      }
+    }
+    document.oncontextmenu = function() {
+      return false;
+    }
+  }
+
+  /**
+   * ==========================================
+   * IndexedDB 数据库封装模块
+   * ==========================================
+   */
+  let dbPromise = null;
+
+  /**
+   * 打开或连接本地 IndexedDB (cp_app_db)
+   * @returns {Promise<IDBDatabase>} 返回一个解析为 IndexedDB 实例的 Promise
+   */
+  function openDB() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open('cp_app_db', 1);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('kv')) {
+          db.createObjectStore('kv');
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      req.onblocked = () => console.warn('IndexedDB 升级被阻塞，可能有旧页面未关闭');
+    });
+    return dbPromise;
+  }
+
+  /**
+   * 从 IndexedDB 中根据键名获取对应的数据
+   * @param {string} key - 需要查询的缓存键名
+   * @returns {Promise<any>} 返回包含查询结果的 Promise
+   */
+  async function idbGet(key) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv', 'readonly');
+      const req = tx.objectStore('kv').get(key);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /**
+   * 辅助工具：如果字符串为空则返回全角空格占位，防止表格错位
+   * @param {string|undefined} strTemp - 源字符串
+   * @returns {string} 格式化后的字符串
+   */
+  function replaceBlankToStr(strTemp) { 
+    return (strTemp != "" && strTemp != null) ? String(strTemp).trim() : "　"; 
+  }
+
+  /**
+   * ==========================================
+   * 页面主加载初始化引擎 (全本地缓存版)
+   * ==========================================
+   * DOM 加载完成后执行。直接从 IndexedDB 中捞取全量工艺数据并在前端执行秒级计算和渲染。
+   */
+  $(document).ready(async function() {
+    google.script.run.withSuccessHandler(result => { execUrl = result; console.log(execUrl) }).getReleaseWebPage();
+    
+    let moldModel = sessionStorage.getItem("techViewParaMoldModel") || "";
+    // 注：机型和自动化参数如果需要后续扩展可用，目前主过滤依托模具号
+    // let machineModel = sessionStorage.getItem("techViewParaMachineModel") || "";
+    // let machineType = sessionStorage.getItem("techViewParaMachineType") || "";
+
+    Swal.fire({
+      allowOutsideClick: false, 
+      icon: 'info', 
+      html: '<p>提示</p><p>正在从本地高速缓存加载数据……</p>', 
+      showConfirmButton: false, 
+      willOpen: () => { Swal.showLoading(); }
+    });
+
+    try {
+      // 1. 从 IndexedDB 秒提全量工艺标准库
+      let masterParaData = await idbGet('sSArrInjAllPlanParaData') || [];
+      if (typeof masterParaData === 'string') { masterParaData = JSON.parse(masterParaData); }
+      if (!Array.isArray(masterParaData)) { masterParaData = Object.values(masterParaData); }
+
+      // 2. 模拟后端逻辑：筛选“生效”且“模具号匹配”的记录
+      const filteredRecords = masterParaData.filter(v => {
+        let r_mold = String(v["模具编码"] || "").trim();
+        let r_status = String(v["状态"] || "").trim();
+        return r_mold === moldModel && r_status === "生效";
+      });
+
+      let arrData = [];
+      
+      // 3. 展开内部的 JSON 工艺参数并生成扁平化的二维数组
+      for (let i = 0; i < filteredRecords.length; i++) {
+        let jsonStr = filteredRecords[i]["工艺参数"] || "[]";
+        try {
+          let paramsList = JSON.parse(jsonStr);
+          if (!Array.isArray(paramsList)) paramsList = [paramsList];
+
+          for (let j = 0; j < paramsList.length; j++) {
+            let dept = String(paramsList[j]["检查部门"] || "").trim();
+            let lowerLimit = String(paramsList[j]["设定下限"] || paramsList[j]["下限"] || "").trim();
+            
+            // 过滤规则：有检查部门且下限不为 9999 豁免值
+            if (dept.length > 0 && lowerLimit !== "9999") {
+              arrData.push([
+                replaceBlankToStr(filteredRecords[i]["机型"]),
+                replaceBlankToStr(filteredRecords[i]["自动化分组"]),
+                replaceBlankToStr(filteredRecords[i]["BigBundle"]),
+                replaceBlankToStr(filteredRecords[i]["SKU"]),
+                replaceBlankToStr(filteredRecords[i]["模穴数"]),
+                replaceBlankToStr(filteredRecords[i]["分序类别"]),
+                replaceBlankToStr(paramsList[j]["工艺参数"] || paramsList[j]["参数"]),
+                replaceBlankToStr(paramsList[j]["单位"]),
+                replaceBlankToStr(lowerLimit),
+                replaceBlankToStr(paramsList[j]["设定上限"] || paramsList[j]["上限"]),
+                replaceBlankToStr(dept),
+                replaceBlankToStr(filteredRecords[i]["工艺卡编号"])
+              ]);
+            }
+          }
+        } catch(err) { console.error("解析工艺卡JSON失败", err); }
+      }
+
+      // 4. 将处理好的数据暂存供表格筛选项联动使用
+      sessionStorage.setItem("allRestoreData", JSON.stringify(arrData));
+
+      // 5. 渲染表格主体
+      let table = $("#parameterInjectionTbodyID");
+      table.empty(); // 清空旧数据
+      
+      for (let i = 0; i < arrData.length; i++) {
+        let addRowStr = "<tr>" +
+            "<td style='font-size:12px;text-align:center'>" + arrData[i][0] + "</td>" +
+            "<td style='font-size:12px;text-align:center'>" + arrData[i][1] + "</td>" +
+            "<td style='font-size:12px;text-align:center'>" + arrData[i][2] + "</td>" +
+            "<td style='font-size:12px;text-align:center'>" + arrData[i][3] + "</td>" +
+            "<td style='font-size:12px;text-align:center'>" + arrData[i][4] + "</td>" +
+            "<td style='font-size:12px;text-align:center'>" + arrData[i][5] + "</td>" +
+            "<td style='font-size:12px;text-align:center'>" + arrData[i][6] + "</td>" +
+            "<td style='font-size:12px;text-align:center'>" + arrData[i][7] + "</td>" +
+            "<td style='font-size:12px;text-align:center'>" + arrData[i][8] + "</td>" +
+            "<td style='font-size:12px;text-align:center'>" + arrData[i][9] + "</td>" +
+            "<td style='font-size:12px;text-align:center'>" + arrData[i][10] + "</td>" +
+            "<td style='font-size:12px;text-align:center'>" + arrData[i][11] + "</td>" +
+          "</tr>";
+        table.append(addRowStr);
+      }
+
+      // 6. 将各列的去重唯一值生成数组，灌入顶部下拉筛选项
+      fiterData($("#machineType"), Array.from(new Set(arrData.map(x => x[0]))));
+      fiterData($("#machineModel"), Array.from(new Set(arrData.map(x => x[1]))));
+      fiterData($("#bigBundle"), Array.from(new Set(arrData.map(x => x[2]))));
+      fiterData($("#actSku"), Array.from(new Set(arrData.map(x => x[3]))));
+      fiterData($("#cavityNumber"), Array.from(new Set(arrData.map(x => x[4]))));
+      fiterData($("#classification"), Array.from(new Set(arrData.map(x => x[5]))));
+      fiterData($("#checkDept"), Array.from(new Set(arrData.map(x => x[10]))));
+      fiterData($("#processCardNum"), Array.from(new Set(arrData.map(x => x[11]))));
+
+      Swal.fire({allowOutsideClick: false, icon: 'success', html: '<p>提示</p><p>数据加载成功！</p>', showConfirmButton: false, timer: 1500});
+
+    } catch (e) {
+      console.error(e);
+      Swal.fire({allowOutsideClick: false, icon: 'error', html: '<p>提示</p><p>本地数据提取失败：' + e.toString() + '</p>', showConfirmButton: true});
+    }
+  });
+  
+  /**
+   * ==========================================
+   * 加载并渲染表头下拉筛选框数据
+   * ==========================================
+   * @param {jQuery} filterId - 对应的下拉框 jQuery 节点对象
+   * @param {Array} filterResult - 去重后的单列属性值数组
+   */
+  function fiterData(filterId, filterResult) {
+    let secFilter = filterId;
+    let arrData = filterResult;
+    
+    if (arrData.length > 0) {
+      secFilter.empty();
+      for (let i = 0; i <= arrData.length; i++) {
+        if (i == 0) {
+          // 第0项塞入包含所有选项数组的字符串，巧妙实现“全选”功能
+          secFilter.append("<option style='font-size:small' value='" + arrData + "'>全部</option>");
+        } else {
+          secFilter.append("<option style='font-size:small' value='" + arrData[i - 1] + "'>" + arrData[i - 1] + "</option>");
+        }
+      }
+    } else {
+      secFilter.empty();
+    }
+    // 通知 bootstrap-select 刷新视图
+    secFilter.selectpicker('refresh');
+  }
+  
+  /**
+   * ==========================================
+   * 事件绑定：表头下拉框变化时重载过滤数据
+   * ==========================================
+   * 利用事件委托监听 Thead 区域内下拉框的变动
+   */
+  $("#parameterInjectionTheadID").on("change", "th", function() {
+    let table = $("#parameterInjectionTbodyID");
+    let tdSeq = $(this).index();
+    let arrData = JSON.parse(sessionStorage.getItem("allRestoreData") || "[]");
+    
+    // 排除了第 6,7,8,9 列 (工艺参数, 单位, 下限, 上限)，这四列不支持头部筛选
+    if (tdSeq < 6 || tdSeq > 9) {
+      let filterKeyMachineType = $("#machineType");
+      let filterKeyMachineModel = $("#machineModel");
+      let filterKeyBigBundle = $("#bigBundle");
+      let filterKeyActSku = $("#actSku");
+      let filterKeyCavityNumber = $("#cavityNumber");
+      let filterKeyClassification = $("#classification");
+      let filterKeyCheckDept = $("#checkDept");
+      let filterKeyProcessCardNum = $("#processCardNum");
+      
+      filterRefresh(
+        table, arrData,
+        filterKeyMachineType, 0,
+        filterKeyMachineModel, 1,
+        filterKeyBigBundle, 2,
+        filterKeyActSku, 3,
+        filterKeyCavityNumber, 4,
+        filterKeyClassification, 5,
+        filterKeyCheckDept, 10,
+        filterKeyProcessCardNum, 11
+      );
+    }
+  });
+  
+  /**
+   * ==========================================
+   * 核心过滤器重载引擎
+   * ==========================================
+   * 根据顶部 N 个组合下拉框选定的值，交集过滤出符合条件的行并重新推入 Tbody。
+   * * @param {jQuery} table - 目标渲染的 tbody 节点
+   * @param {Array} arrData - 全量原始数据备份池
+   * @param {jQuery} filterKeyXXX - 对应列的下拉框节点对象
+   * @param {number} tdSeqXXX - 对应列在二维数组中的索引号
+   */
+  function filterRefresh(
+    table, arrData, 
+    filterKeyMachineType, tdSeqMachineType, 
+    filterKeyMachineModel, tdSeqMachineModel, 
+    filterKeyBigBundle, tdSeqBigBundle, 
+    filterKeyActSku, tdSeqActSku, 
+    filterKeyCavityNumber, tdSeqCavityNumber, 
+    filterKeyClassification, tdSeqClassification, 
+    filterKeyCheckDept, tdSeqCheckDept, 
+    filterKeyProcessCardNum, tdSeqProcessCardNum
+  ) {
+    let filterKeyValueMachineType = filterKeyMachineType.val() || "";
+    let filterKeyValueMachineModel = filterKeyMachineModel.val() || "";
+    let filterKeyValueBigBundle = filterKeyBigBundle.val() || "";
+    let filterKeyValueActSku = filterKeyActSku.val() || "";
+    let filterKeyValueCavityNumber = filterKeyCavityNumber.val() || "";
+    let filterKeyValueClassification = filterKeyClassification.val() || "";
+    let filterKeyValueCheckDept = filterKeyCheckDept.val() || "";
+    let filterKeyValueProcessCardNum = filterKeyProcessCardNum.val() || "";
+    
+    // 利用字符串 indexOf() 涵盖 "全选" 与 "单选" 的交集过滤
+    let arrTemp = arrData.filter(function(x) {
+      return filterKeyValueMachineType.indexOf(x[tdSeqMachineType].toString()) > -1 &&
+             filterKeyValueMachineModel.indexOf(x[tdSeqMachineModel].toString()) > -1 &&
+             filterKeyValueBigBundle.indexOf(x[tdSeqBigBundle].toString()) > -1 &&
+             filterKeyValueActSku.indexOf(x[tdSeqActSku].toString()) > -1 &&
+             filterKeyValueCavityNumber.indexOf(x[tdSeqCavityNumber].toString()) > -1 &&
+             filterKeyValueClassification.indexOf(x[tdSeqClassification].toString()) > -1 &&
+             filterKeyValueCheckDept.indexOf(x[tdSeqCheckDept].toString()) > -1 &&
+             filterKeyValueProcessCardNum.indexOf(x[tdSeqProcessCardNum].toString()) > -1;
+    });
+    
+    table.empty(); // 清空当前渲染区
+    
+    for (let i = 0; i < arrTemp.length; i++) {
+      let addRowStr = "<tr>" +
+          "<td style='font-size:12px;text-align:center'>" + arrTemp[i][0] + "</td>" +
+          "<td style='font-size:12px;text-align:center'>" + arrTemp[i][1] + "</td>" +
+          "<td style='font-size:12px;text-align:center'>" + arrTemp[i][2] + "</td>" +
+          "<td style='font-size:12px;text-align:center'>" + arrTemp[i][3] + "</td>" +
+          "<td style='font-size:12px;text-align:center'>" + arrTemp[i][4] + "</td>" +
+          "<td style='font-size:12px;text-align:center'>" + arrTemp[i][5] + "</td>" +
+          "<td style='font-size:12px;text-align:center'>" + arrTemp[i][6] + "</td>" +
+          "<td style='font-size:12px;text-align:center'>" + arrTemp[i][7] + "</td>" +
+          "<td style='font-size:12px;text-align:center'>" + arrTemp[i][8] + "</td>" +
+          "<td style='font-size:12px;text-align:center'>" + arrTemp[i][9] + "</td>" +
+          "<td style='font-size:12px;text-align:center'>" + arrTemp[i][10] + "</td>" +
+          "<td style='font-size:12px;text-align:center'>" + arrTemp[i][11] + "</td>" +
+        "</tr>";
+      table.append(addRowStr);
+    }
+  }
+
+</script>

@@ -1,0 +1,203 @@
+<script>
+  let execUrl = "";
+
+  /**
+   * ==========================================
+   * 页面安全防护设置
+   * ==========================================
+   * 禁用鼠标右键菜单与浏览器的开发者调试快捷键 (F12, Ctrl+Shift+I)
+   */
+  window.onload = function() {       
+    document.onkeydown = function() {
+      let e = window.event || arguments[0];
+      if (e.keyCode == 123) {        
+        // 禁用 F12 
+        return false;
+      } else if ((e.ctrlKey) && (e.shiftKey) && (e.keyCode == 73)) {
+        // 禁用 Ctrl+Shift+I
+        return false;
+      }
+    };
+    document.oncontextmenu = function() {
+      // 禁用鼠标右键
+      return false;
+    };
+  };
+
+  /**
+   * ==========================================
+   * 页面初始化与核心数据拉取
+   * ==========================================
+   * 窗体载入时调用，获取前置页面存入的会话变量（姓名、工号、SKU等），
+   * 优先从缓存读取 BOM 数据以实现秒开，若无缓存则触发后台检索。
+   */
+  $(document).ready(function () {
+    // 异步获取发布环境的 Web App URL 以供跳转使用
+    google.script.run.withSuccessHandler(result => { execUrl = result; }).getReleaseWebPage();
+    
+    // 初始化会话变量至输入框
+    let usernameID = sessionStorage.getItem("viewName") || "";
+    $("#usernameID").val(usernameID);
+    
+    let SAPCodeID = sessionStorage.getItem("viewId") || "";
+    $("#SAPCodeID").val(SAPCodeID);
+    
+    let materialInputID = sessionStorage.getItem("viewBomSku") || "";
+    $("#materialInputID").val(materialInputID);
+    
+    let lineMoldType = sessionStorage.getItem("viewBomMoldType") || "";
+    $("#lineMoldType").val(lineMoldType);
+    
+    let lineInputId = sessionStorage.getItem("viewBomMachine") || "";
+    $("#lineInputId").val(lineInputId);
+    
+    Swal.fire({allowOutsideClick: false, icon: "info", title: "提醒", text: "正在加载BOM……", showConfirmButton: false, footer: "<p>完成窗口会自动关闭</p>"});
+    
+    // 【核心防呆修复】：加入 trycatch 和 || [] 兜底，防止解析 null 导致崩溃
+    let arrTfBomS = [];
+    try {
+      let cacheData = sessionStorage.getItem(materialInputID + "-BOMS");
+      if (cacheData) {
+        arrTfBomS = JSON.parse(cacheData) || [];
+      }
+    } catch(e) {
+      arrTfBomS = [];
+    }
+
+    // 智能分支：如果有缓存数据就直接渲染，如果没有就自动触发“显示”按钮去后台拉取！
+    if (arrTfBomS.length > 0) {
+      renderBomTable(arrTfBomS);
+      Swal.fire({allowOutsideClick: false, icon: "success", title: "提醒", text: "BOM获取成功", showConfirmButton: false, timer: 1500});
+    } else {
+      if (materialInputID !== "") {
+        console.warn("缓存未命中，自动触发后台检索...");
+        $("#displayBOMButtonID").click();
+      } else {
+        Swal.close();
+      }
+    }
+  });
+
+  /**
+   * ==========================================
+   * BOM 列表表格渲染函数
+   * ==========================================
+   * 独立抽离的表格渲染模块，将获取到的 BOM 二维数组数据绘制到 HTML 表格中。
+   * @param {Array<Array<any>>} arrTfBomS - 包含 BOM 信息的二维数组 
+   * [BOM编号, 取代编号, 描述, 自动模, 类型, 状态, 转换日期, 链接文件URL]
+   */
+  function renderBomTable(arrTfBomS) {
+    let table = $("#BOMDisplayTableBodyID");
+    table.empty(); // 清空旧数据
+    
+    for (let k = 0; k < arrTfBomS.length; k++) {
+      let tempBackgroundColor = "#FFFFFF";
+      let ifEnable = "";
+      let ifButton = "";
+      
+      // 判定状态：已生效或已取消的 BOM 灰显锁定
+      if (arrTfBomS[k][5] == "取消" || arrTfBomS[k][5] == "生效") {
+        tempBackgroundColor = "#B8B8B8";
+        ifEnable = "disabled";
+      } 
+      // 判定状态：待生效的 BOM 暴露出“申请激活”按钮
+      else if (arrTfBomS[k][5] == "待生效" || arrTfBomS[k][5] == "") {
+        ifButton = "<button class='form-control btn btn-sm btn-success' onclick='applyActive(this)'>申请激活</button>";
+      }
+      
+      // 严谨的双空格单行字符串拼接，杜绝回车导致的意外白屏报错
+      let addRowStr = "<tr><td style='height:60px;font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "' " + ifEnable + ">" + arrTfBomS[k][0] + "</td><td style='height:60px;font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "' " + ifEnable + ">" + arrTfBomS[k][1] + "</td><td style='height:60px;font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "' " + ifEnable + ">" + arrTfBomS[k][2] + "</td><td style='height:60px;font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "' " + ifEnable + ">" + arrTfBomS[k][3] + "</td><td style='height:60px;font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "' " + ifEnable + ">" + arrTfBomS[k][4] + "</td><td style='height:60px;font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "' " + ifEnable + ">" + arrTfBomS[k][5] + "</td><td style='height:60px;font-size:12px;text-align:center;background-color:" + tempBackgroundColor + "' " + ifEnable + ">" + arrTfBomS[k][6] + "</td><td style='height:60px;font-size:12px;text-align:center;display:none;background-color:" + tempBackgroundColor + "'>" + arrTfBomS[k][7] + "</td><td style='height:60px;font-size:12px;text-align:center'>" + ifButton + "</td><td style='height:60px;font-size:12px;text-align:center'><button class='form-control btn btn-sm btn-warning' onclick='showPdf(this)'>预览</button></td></tr>";
+      table.append(addRowStr);
+    }
+    
+    // 定位滚动条到合适位置
+    let rows = arrTfBomS.length;
+    $("#divScroll").scrollTop(rows * 60);
+    $("#divScroll").scrollLeft(18 * 300);
+  }
+  
+  /**
+   * ==========================================
+   * 用户申请激活 BOM
+   * ==========================================
+   * 当操作员点击表格内待生效 BOM 对应的【申请激活】按钮时触发。
+   * 收集当前行数据向服务器提交激活申请。
+   * @param {HTMLElement} obj - 触发事件的按钮 DOM 元素
+   */
+  function applyActive(obj) {
+    let trSeq = $(obj).parent().parent().index();
+    let table = $("#BOMDisplayTableBodyID");
+    let bomNum = table.find("tr").eq(trSeq).find("td").eq(0).text();
+    let usernameID = $("#usernameID").val();
+    let lineInputId = $("#lineInputId").val();
+    
+    Swal.fire({allowOutsideClick: false, icon: "info", title: "提醒", text: "正在申请……", showConfirmButton: false});
+    
+    // 调用后端申请函数
+    google.script.run.withSuccessHandler(htmlApplyBom).applyBom(bomNum, usernameID, lineInputId);
+    
+    /** 后端响应处理回调 */
+    function htmlApplyBom(result) {
+      if (result[0] == "OK") {
+        Swal.fire({allowOutsideClick: false, icon: "success", title: "提醒", text: "申请成功，请等待审批", showConfirmButton: false, timer: 1500});
+      } else {
+        Swal.fire({allowOutsideClick: false, icon: "error", title: "提醒", text: "申请失败" + result[1], showConfirmButton: true});
+      }
+    }
+  }
+
+  /**
+   * ==========================================
+   * 预览对应图纸
+   * ==========================================
+   * 提取当前行隐藏的第 8 列 (索引 7) 的 PDF 网址并新标签页打开。
+   * @param {HTMLElement} obj - 触发事件的按钮 DOM 元素
+   */
+  function showPdf(obj) {
+    let trSeq = $(obj).parent().parent().index();
+    let table = $("#BOMDisplayTableBodyID");
+    let pdfUrl = table.find("tr").eq(trSeq).find("td").eq(7).text();
+    
+    if (pdfUrl != "") {
+      window.open(pdfUrl);
+    } else {
+      Swal.fire({allowOutsideClick: false, icon: "error", title: "提醒", text: "未找到链接", showConfirmButton: false, timer: 1500});
+    }
+  }
+  
+  /**
+   * ==========================================
+   * 导航至后台审批台
+   * ==========================================
+   * 点击右上角的“审批”按钮，打开当前 Web App 主入口进入审批模块。
+   */
+  $("#approveBOMButtonID").on("click", function() {
+    window.open(execUrl);
+  });
+
+  /**
+   * ==========================================
+   * 主动查询 SKU 下的所有 BOM 历史
+   * ==========================================
+   * 用户可输入新 SKU 点击“显示”按钮，发起后台查询并渲染返回的列表数据。
+   */
+  $("#displayBOMButtonID").on("click", function() {
+    let materialInputID = $("#materialInputID").val();
+    let psku = "";
+    
+    Swal.fire({allowOutsideClick: false, icon: "info", title: "提醒", text: "正在获取……", showConfirmButton: false, footer: "<p>完成窗口会自动关闭</p>"});
+    
+    google.script.run.withSuccessHandler(htmlGetBom).getBom(materialInputID, psku);
+    
+    /** 后端响应处理回调 */
+    function htmlGetBom(result) {
+      if (result[0] == "OK") {
+        let arrTfBomS = result[1];
+        renderBomTable(arrTfBomS);
+        Swal.fire({allowOutsideClick: false, icon: "success", title: "提醒", text: "BOM获取成功", showConfirmButton: false, timer: 1500});
+      } else {
+        Swal.fire({allowOutsideClick: false, icon: "error", title: "提醒", text: result[1], showConfirmButton: true});
+      }
+    }
+  });
+</script>

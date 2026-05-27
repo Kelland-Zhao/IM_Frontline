@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="ch">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <?!=include("bootstrap_4.5.3_css");?>
+  <?!=include("bootstrap_datepicker_1.9.0_css");?>
+  <?!=include("bootstrap_select_1.13.18_css");?>
+  <?!=include("jquery_ui_1.12.1_css");?>
+  <?!=include("limonte_sweetalert2_11.4.4_css");?>
+  <?!=include("fontawesome_4.5_js");?>
+  <?!=include("CSS");?>
+</head>
+<body>
+  <button id="btnWakeScreen" class="floating-btn" onclick="wakeScreen()">&#x1F50C</button>
+  <div class="container">
+    <h1 id="viewSarmOrPostageTotalResult" class="text-center" style="background-color:rgb(218,41,28);color:white;padding:1px">
+      <?=title;?>
+      <div class="row" style="margin-top:-25px;margin-bottom:-15px;padding:0">
+        <div class="col-10 offset-1">
+          <marquee direction="right" scrollamount="5" behavior="alternate">
+            <b style="color:white;font-size:small">开班1小时内完成补减登记，再15分钟后点此查询补减结果</b>
+          </marquee>
+        </div>
+      </div>
+    </h1>
+  </div>
+
+  <div class="container" style="margin-top:1px">
+    <div class="card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px">
+      <div class="row">
+        <div class="col-2" style="display:none">
+          <label for="todayDate" style="font-size:small">日期</label>
+          <input class="form-control" id="todayDate" type="date" style="text-align:center;background-color:unset;font-size:small" placeholder="" disabled>
+        </div>
+        <div class="col-1" style="display:none">
+          <label for="todayShift" style="font-size:small">班次</label>
+          <select id="todayShift" class="form-control selectpicker" data-none-selected-text="选择班次……" data-size="5" data-live-search="true" data-live-search-placeholder="搜索" data-style="btn-outline-secondary" disabled>
+            <option value="" selected>空白</option>
+            <option>夜</option>
+            <option>早</option>
+            <option>中</option>
+          </select>
+        </div>
+        <div class="col-2">
+          <label for="viewId" style="font-size:small">工号</label>
+          <input class="form-control" id="viewId" type="text" style="text-align:center;background-color:unset;font-size:small" placeholder="" readonly="readonly">
+        </div>
+        <div class="col-2">
+          <label for="viewName" style="font-size:small">姓名</label>
+          <input class="form-control" id="viewName" type="text" style="text-align:center;background-color:unset;font-size:small" placeholder="" disabled>
+        </div>
+        <div class="col-2">
+          <label for="viewMachine" style="font-size:small">
+            机台
+            <i id="btnForceSyncData" class="fa fa-refresh" style="cursor:pointer; color:#dc3545; margin-left:2px; font-size:small;" title="双击强制更新后台主数据"></i>
+          </label>
+          <select id="viewMachine" class="form-control selectpicker" data-none-selected-text="选择机台……" data-size="5" data-live-search="true" data-live-search-placeholder="搜索" data-style="btn-outline-danger">
+            <option value="" selected>空白</option>
+            <?!=listMachine?>
+          </select>
+        </div>
+
+        <div class="col-2">
+          <label for="viewPlan" style="color: black;font-size:small">　</label>
+          <button id="viewPlan" class="form-control btn btn-danger" onclick="viewPlan()" style="font-size:small">查看</button>
+        </div>
+
+        <div class="col-2" style="margin-left:0px;padding-left:1px;margin-right:0px;padding-right:1px">
+          <label for="btnGroupFPR" style="color: black;font-size:small">　</label>
+          <div class="dropdown d-inline-block" style="width:100%">
+            <button id="btnGroupFPR" class="form-control btn btn-success dropdown-toggle" style="font-size:small" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">FP&R</button>
+            <ul class="dropdown-menu w-100" style="min-width:80%;max-width:100%" aria-labelledby="btnGroupFPR">
+              <li><button id="problemTag" onclick="problemTag()" class="form-control btn btn-sm btn-primary">问题标签</button></li>
+              <li class="dropdown-divider"></li>
+              <li><button id="hongdan" onclick="hongdan()" class="form-control btn btn-sm btn-danger">红单</button></li>
+              <li class="dropdown-divider"></li>
+              <li><button id="amGroupMeeting" onclick="amGroupMeeting()" class="form-control btn btn-sm btn-info">AM小组会议</button></li>
+              <li class="dropdown-divider"></li>
+              <li><button id="trainingSystem" onclick="trainingSystem()" class="form-control btn btn-sm btn-warning">培训系统</button></li>
+              <li class="dropdown-divider"></li>
+              <li><button id="view5SW" onclick="view5SW()" class="form-control btn btn-sm btn-success">5S&W查询</button></li>
+              <li class="dropdown-divider"></li>
+              <li><button id="csxAmDashboard" onclick="csxAmDashboard()" class="form-control btn btn-sm btn-primary">CSX AM Dashboard</button></li>
+              <li class="dropdown-divider"></li>
+              <li><button id="edsPmPlan" onclick="edsPmPlan()" class="form-control btn btn-sm btn-danger">维护保养</button></li>
+              <li class="dropdown-divider"></li>
+              <li><button id="edsPointCheck" onclick="edsPointCheck()" class="form-control btn btn-sm btn-warning">点检</button></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="col-2">
+          <label for="planStatus" style="color: black;font-size:small">　</label>
+          <button id="planStatus" class="form-control btn btn-danger" onclick="planStatus()" style="font-size:small">计划状态</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="container" style="margin-top:10px">
+    <div class="card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px;">
+      <div id="divScroll" class="frozenTableRC">
+        <table id="tabdisplay" cellspacing="0" align="center" style="table-layout:fixed;width:100%;font-size:small;word-break:break-all">
+          <thead id="theadDisplay">
+            <tr>
+              <th style="text-align:center;width:0px;display:none">序号</th>
+              <th style="text-align:center;width:80px">PO</th>
+              <th style="text-align:center;width:80px">日期</th>
+              <th style="text-align:center;width:60px">班次</th>
+              <th style="text-align:center;width:80px">AEM</th>
+              <th style="text-align:center;width:80px">机器状态</th>
+              <th style="text-align:center;width:100px">拌料编码</th>
+              <th style="text-align:center;width:120px">产品名称</th>
+              <th style="text-align:center;width:120px">产品模具</th>
+              <th style="text-align:center;width:100px">牙柄编码</th>
+              <th style="text-align:center;width:100px">手包编码</th>
+              <th style="text-align:center;width:0px;display:none">箱含量</th>
+              <th style="text-align:center;width:0px;display:none">预留</th>
+              <th style="text-align:center;width:0px;display:none">预留</th>
+              <th style="text-align:center;width:0px;display:none">预留</th>
+              <th style="text-align:center;width:80px">剩余计划</th>
+              <th style="text-align:center;width:80px">计划</th>
+              <th style="text-align:center;width:0px;display:none">产出</th>
+              <th style="text-align:center;width:160px">功能按钮</th>
+              <th style="text-align:center;width:0px;display:none">初始PO信息</th>
+              <th style="text-align:center;width:0px;display:none">历史PO信息</th>
+            </tr>
+          </thead>
+          <tbody id="tbodydisplay">
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="container" style="margin-top:10px">
+    <div class="card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px;">
+      <div class="row">
+        <div class="col-2 text-center">
+          <button class="btn btn-info" id="btnshow">工具栏</button>
+        </div>
+        <div class="col-3 text-center">
+          <button class="btn btn-success" onclick="todView()">培训操作文档查询</button>
+        </div>
+      </div>   </div>
+  </div>
+
+  <div id="modalViewPlan" class="modal fade" role="dialog" aria-hidden="true" data-backdrop="static">
+    <div class="modal-dialog " style="max-width:100%"><div class="modal-content" style="width:100%">
+        <div class="modal-header">
+          <h4 class="modal-title">查看机台计划</h4>
+          <button class="close" data-dismiss="modal">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="row">
+            <div class="col-2">
+              <label for="modalViewMachine" style="font-size:small">查询机台</label>
+              <input type="text" id="modalViewMachine" class="form-control" readonly="readonly">
+            </div>
+          </div>
+
+          <div class="row" style="border: dashed 0.01rem;">
+            <div id="modaldivScroll" class="frozenTableRC" style="height:60vh">
+              <table id="modaltabdisplay" cellspacing="0" align="center" style="table-layout:fixed;width:100%;font-size:small;word-break:break-all">
+                <thead>
+                  <tr>
+                    <th style="text-align:center;width:0px;display:none">序号</th>
+                    <th style="text-align:center;width:80px">PO</th>
+                    <th style="text-align:center;width:80px">日期</th>
+                    <th style="text-align:center;width:60px">班次</th>
+                    <th style="text-align:center;width:80px">AEM</th>
+                    <th style="text-align:center;width:100px">机器状态</th>
+                    <th style="text-align:center;width:100px">拌料编码</th>
+                    <th style="text-align:center;width:120px">产品名称</th>
+                    <th style="text-align:center;width:120px">产品模具</th>
+                    <th style="text-align:center;width:100px">牙柄编码</th>
+                    <th style="text-align:center;width:100px">手包编码</th>
+                    <th style="text-align:center;width:0px;display:none">箱含量</th>
+                    <th style="text-align:center;width:0px;display:none">预留</th>
+                    <th style="text-align:center;width:0px;display:none">预留</th>
+                    <th style="text-align:center;width:0px;display:none">预留</th>
+                    <th style="text-align:center;width:0px;display:none">预留</th>
+                    <th style="text-align:center;width:80px">计划</th>
+                  </tr>
+                </thead>
+                <tbody id="modaltbodydisplay">
+                </tbody>
+              </table>
+            </div>
+          </div> </div> <div class="modal-footer">
+          <button class="btn btn-lg btn-success" data-dismiss="modal">关闭</button></div>
+
+      </div> </div> </div> <div id="modalTeamCheckType" class="modal fade" role="dialog" aria-hidden="true" data-backdrop="static">
+    <div class="modal-dialog modal-xl"><div class="modal-content">
+
+        <div class="modal-header">
+          <h5>选择操作类别</h5>
+          <button class="close" data-dismiss="modal">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="row">
+            <div class="col-6 offset-3">
+              <input class="form-control" style="display:none" type="number" id="teamCheckTypeRow" disable> 
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-4 offset-1 text-center">
+              <button class="form-control btn btn-primary" id="btnHandOver" style="font-size:small">交接班检查</button>
+            </div>
+            <div class="col-4 offset-2 text-center">
+              <button class="form-control btn btn-warning" id="btnSelfCheck" style="font-size:small">两小时自检</button>
+            </div>
+          </div>
+          <div class="row" style="margin-top:20px">
+            <div class="col-4 offset-2 text-center">
+              <button class="form-control btn btn-secondary" id="btnInsertPlan" style="font-size:small">插入计划</button>
+            </div>
+            <div class="col-4 text-center">
+              <button class="form-control btn btn-success" id="btnFinalMoldCollection" style="font-size:small">末模记录</button>
+            </div>
+          </div> </div> <div class="modal-footer">
+        </div>
+
+      </div> </div> </div> <div id="modalTechCheckType" class="modal fade" role="dialog" aria-hidden="true" data-backdrop="static">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+
+        <div class="modal-header">
+          <h5>选择操作类别</h5>
+          <button class="close" data-dismiss="modal">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="row">
+            <div class="col-6 offset-3">
+              <input class="form-control" style="display:none" type="number" id="techCheckTypeRow" disable> 
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-4 text-center">
+              <button class="btn btn-primary" id="btnTechViewPara">查询工艺参数</button>
+            </div>
+            <div class="col-4 text-center">
+              <button class="btn btn-warning" id="btnTechFirstCheck">设备首件确认</button>
+            </div>
+            <div class="col-4 text-center">
+              <button class="btn btn-info" id="btnTechPpmsWeekCheck">设备参数周检</button>
+            </div>
+          </div> </div> <div class="modal-footer">
+        </div>
+
+      </div> </div> </div> <div id="showModal" style="height:300px;width:100%; position: fixed; left: 0; bottom: 0;display: none; background-color: #fff; z-index: 200;">
+    <div class="container" style="margin-top:10px">
+      <div class="card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px;">
+        <h3 style="text-align:center">注塑工具菜单</h3>
+        <div class="row" style="margin-top:20px">
+          <h5>信息查询</h5>
+        </div>
+        <div class="row">
+          <div class="col-2 text-center">
+            <button class="form-control btn btn-sm btn-primary" onclick="eohsInfoCommunicate()">安全信息沟通</button>
+          </div>
+          <div class="col-2 text-center">
+            <button class="form-control btn btn-sm btn-success" onclick="ppmsRandomCheck()">工艺抽查</button>
+          </div>
+          <div class="col-2 text-center">
+            <button class="form-control btn btn-sm btn-warning" onclick="returnMaterial()">退料登记表</button>
+          </div>
+          <div class="col-2 text-center">
+            <button class="form-control btn btn-sm btn-danger" onclick="productionAttentionPoint()">生产注意点</button>
+          </div>
+          <div class="col-2 text-center">
+            <button class="form-control btn btn-sm btn-info" onclick="timeOperation()">时间运算</button>
+          </div>
+          <div class="col-2 text-center">
+            <button class="form-control btn btn-sm btn-primary" onclick="groupHandOver()">交接班</button>
+          </div>
+        </div>
+        <div class="row" style="margin-top:20px">
+          <h5>信息收集</h5>
+        </div>
+        <div class="row">
+          <div class="col-2 text-center">
+            <button class="form-control btn btn-sm btn-primary" onclick="inventoryRecord()">盘点记录</button>
+          </div>
+          <div class="col-2 text-center">
+            <button class="form-control btn btn-sm btn-warning" onclick="trialProd()">试生产记录</button>
+          </div>
+          <div class="col-2 text-center">
+            <button class="form-control btn btn-sm btn-danger" onclick="shiftOutputAbnormal()">油墨信息登记</button>
+          </div>
+          <div class="col-2 text-center">
+            <button class="form-control btn btn-sm btn-info" onclick="threeAixMdtTotal()">三轴故障统计</button>
+          </div>
+          <div class="col-2 text-center">
+            <button class="form-control btn btn-sm btn-secondary" onclick="scrapTotal()">废品统计</button>
+          </div>
+          <div class="col-2 text-center">
+            <button class="form-control btn btn-sm btn-warning" onclick="endShiftCheck()">停机检查</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="showModalCalcTime" style="height:300px;width:100%; position: fixed; left: 0; top: 0;display: none; background-color: #fff; z-index: 200;">
+    <div class="container" style="margin-top:10px">
+      <div class="card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px;">
+        <h3 style="text-align:center">直配根据产出计算工时</h3>
+        <div class="row" style="margin-top:20px">
+          <div class="col">
+            <div class="input-group">
+              <div class="input-group-prepend">
+                <a class="input-group-text" style="font-size:small">直配机台</a>
+              </div>
+              <select id="ctMachine" class="selectpicker form-control" data-none-selected-text="选择机台……" data-size="5" data-live-search="true" data-live-search-placeholder="搜索" data-style="btn-outline-danger">
+                <option style="font-size:small">E0EN0004</option>
+                <option style="font-size:small">E0EN0006</option>
+                <option style="font-size:small">E0EN0007</option>
+              </select>
+              <div class="input-group-prepend">
+                <a class="input-group-text" style="font-size:small">直配产品</a>
+              </div>
+              <select id="ctSku" class="selectpicker form-control" data-none-selected-text="选择机台……" data-size="5" data-live-search="true" data-live-search-placeholder="搜索" data-style="btn-outline-danger">
+                <option style="font-size:small">C0000001961</option>
+                <option style="font-size:small">C0000004314</option>
+                <option style="font-size:small">C0000007982</option>
+                <option style="font-size:small">C0000009964</option>
+              </select>
+            </div>
+          </div>
+        </div>  
+        <div class="row" style="margin-top:20px">
+          <div class="col">
+            <div class="input-group">
+              <div class="input-group-prepend">
+                <a class="input-group-text" style="font-size:small">标准产出</a>
+              </div>
+              <input id="ctStandardOut" type="text" class="form-control" style="font-size:small" disabled>
+              <div class="input-group-prepend">
+                <a class="input-group-text" style="font-size:small">标准工时</a>
+              </div>
+              <input id="ctStandardTime" type="text" class="form-control" style="font-size:small" disabled>
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:20px">
+          <div class="col">
+            <div class="input-group">
+              <div class="input-group-prepend">
+                <a class="input-group-text" style="font-size:small">实际产出</a>
+              </div>
+              <input id="ctActOut" type="text" class="form-control" style="font-size:small;border:1;border-color:red" placeholder="输入实际产出……">
+              <div class="input-group-prepend">
+                <a class="input-group-text" style="font-size:small">实际工时</a>
+              </div>
+              <input id="ctActTime" type="text" class="form-control" style="font-size:small" disabled>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="showModalCalcSARM" style="width:90%; position: fixed; left: 5% ; top: 0;display: none; background-color: #fff; z-index: 200;">
+    <div class="container" style="margin-top:10px">
+      <div class="card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px;">
+        <h5 style="text-align:center">补减料</h5>
+        <div class="row" style="margin-top:20px">
+          <div class="col text-center">
+            <h6 style="text-align:center">前1个班后2个班计划信息</h6>
+            <table cellspacing="0" align="center" style="table-layout:auto;width:100%;font-size:xx-small;word-break:break-all">
+              <thead>
+                <tr style="background:rgb(218,41,28);color:white">
+                  <th>日期</th>
+                  <th>班次</th>
+                  <th>拌料编码</th>
+                  <th>产品名称</th>
+                  <th>计划量</th>
+                  <th>物料编码</th>
+                </tr>
+              </thead>
+              <tbody id="tbodyMachinePrevNextPlanInfo">
+              </tbody>
+            </table>
+          </div>
+          <div class="col-5 text-center"> <h6 style="text-align:center"><button id="btnViewCurrentSARS" class="btn-xs btn-primary">查询</button>当班补减料信息<button id="btnSaveCurrentSARS" class="btn-xs btn-warning">保存</button></h6>
+            <table cellspacing="0" align="center" style="table-layout:auto;width:100%;font-size:xx-small;word-break:break-all">
+              <thead>
+                <tr style="background:rgb(218,41,28);color:white">
+                  <th>行数</th>
+                  <th>日期</th>
+                  <th>班次</th>
+                  <th>机台</th>
+                  <th>拌料编码</th>
+                  <th>配方编码</th>
+                  <th>类别</th>
+                  <th>包数</th>
+                </tr>
+              </thead>
+              <tbody id="tbodyMachinePrevSarmInfo">
+              </tbody>
+            </table>
+          </div>
+        </div>
+  
+        <div class="row" style="margin-top:20px">
+          <div class="col">
+            <div class="input-group">
+              <div class="input-group-prepend">
+                <b class="input-group-text" style="font-size:small">当前日期班次</b>
+              </div>
+              <input id="sarmDateShift" type="text" class="form-control" style="font-size:small" disabled>
+              <div class="input-group-prepend">
+                <b class="input-group-text" style="font-size:small">选择日期</b>
+              </div>
+              <input id="sarmDate" type="text" class="form-control" style="font-size:small" disabled>
+              <div class="input-group-prepend">
+                <b class="input-group-text" style="font-size:small">选择班次</b>
+              </div>
+              <input id="sarmShift" type="text" class="form-control" style="font-size:small" disabled>
+              <div class="input-group-prepend">
+                <b class="input-group-text" style="font-size:small">机台</b>
+              </div>
+              <input id="sarmMachine" type="text" class="form-control" style="font-size:small" disabled>
+            </div>
+          </div>
+        </div>  
+
+        <div class="row" style="margin-top:20px">
+          <div class="col text-center">
+            <div class="input-group">
+              <div class="input-group-prepend">
+                <b class="input-group-text" style="font-size:small;outline:red">SKU</b>
+              </div>
+              <input id="sarmSku" type="text" class="form-control" style="font-size:small" disabled>
+              <div class="input-group-prepend">
+                <b class="input-group-text" style="font-size:small">品种</b>
+              </div>
+              <input id="sarmDes" type="text" class="form-control" style="font-size:small" disabled>
+              <div class="input-group-prepend">
+                <b class="input-group-text" style="font-size:small">标准物料</b>
+              </div>
+              <input id="sarmStdPreNo" type="text" class="form-control" style="font-size:small" disabled>
+            </div>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:20px">
+          <div class="col">
+            <div class="input-group">
+              <div class="input-group-prepend">
+                <b class="input-group-text" style="font-size:small">操作类别</b>
+              </div>
+              <select id="sarmType" class="selectpicker form-control" data-none-selected-text="选择类别……" data-size="5" data-live-search="true" data-live-search-placeholder="搜索" data-style="btn-outline-danger">
+              </select>
+              <div class="input-group-prepend">
+                <b id="handAddSkuPrePo" class="input-group-text" style="font-size:small">物料编码</b>
+              </div>
+              <select id="sarmPreNo" class="selectpicker form-control" data-none-selected-text="选择编码……" data-size="5" data-live-search="true" data-live-search-placeholder="搜索" data-style="btn-outline-danger">
+              </select>
+              <div class="input-group-prepend">
+                <b class="input-group-text" style="font-size:small">输入数量(小包)</b>
+              </div>
+              <input id="sarmNumber" type="number" class="form-control" style="font-size:small">
+              <div class="input-group-append">
+                <div class="input-group-text">
+                  <input id="judgeExpedited" type="checkbox" style="zoom:120%">
+                  <span style="color:red;font-size:small">加急？</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>  
+        <div class="row" style="margin-top:20px">
+          <div class="col">
+            <div id="divSarmReason" class="input-group" style="display:none">
+              <div class="input-group-prepend">
+                <b style="font-size:small;color:red" class="input-group-text" id="sarmProgress"></b>
+              </div>
+              <div class="form-control" style="font-size:small;position:relative;top:0;left:0;right:0;">
+                <div style="position:absolute;left:0;top:0;right:0">
+                  <select id="sarmReasonSelect" class="form-control selectpicker selectFontUnset" data-none-selected-text="选择原因……" data-size="8" data-live-search="true" data-live-search-placeholder="搜索" data-style="btn-outline-danger">
+                    <option value="" selected>选择原因……</option>
+                    <option value="废品">废品</option>
+                    <option value="超产">超产</option>
+                    <option value="欠产">欠产</option>
+                    <option value="无送料量">无送料量</option>
+                  </select>
+                </div>
+                <div style="width:calc(100% - 35px);height:100%;position:absolute;left:0;top:0;right:0;">
+                  <input id="sarmReason" class="form-control" type="text" placeholder="标注原因或寻求领班帮助；选择或扫描……" value="" style="border:0;background-color:unset;font-size:small">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:20px;margin-bottom:10px">
+          <div class="col">
+            <button id="btnSarmSubmit" class="btn btn-success">提交</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="showModalCalcRETU" style="width:90%; position: fixed; left: 5% ; top: 0;display: none; background-color: #fff; z-index: 200;">
+    <div class="container" style="margin-top:10px">
+      <div class="card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px;">
+        <h5 style="text-align:center"><button id="btnViewCurrentRETU" class="btn-sm btn-primary" style="float:left">查询</button>退料</h5>
+        <div class="row" style="margin-top:20px">
+          <div id="retuCol" class="col">
+            <div name="retuRow" class="row" style="margin-top:15px">
+              <div class="col">
+                <div class="input-group">
+                  <div class="input-group-prepend">
+                    <button name="btnDelRow" class="btn btn-sm btn-danger">-</button>
+                  </div> 
+                  <div class="input-group-prepend">
+                    <b name="changeMachine" class="input-group-text" style="font-size:small">机台</b>
+                  </div>
+                  <select name="retuMachine" class="form-control selectpicker" data-none-selected-text="选择机台……" data-size="5" data-live-search="true" data-live-search-placeholder="搜索" data-style="btn-outline-danger">
+                  </select>
+                  <div class="input-group-prepend">
+                    <b class="input-group-text" style="font-size:small">物料编码</b>
+                  </div>
+                  <div class="form-control" style="font-size:small;position:relative;top:0;left:0;right:0">
+                    <div style="position:absolute;left:0;top:0;right:0">
+                      <select name="returnPreNoSelect" class="form-control selectpicker selectFontUnset" data-none-selected-text="选择物料……" data-size="8" data-live-search="true" data-live-search-placeholder="搜索" data-style="btn-outline-danger">
+                        <option value="" selected>选择物料……</option>
+                      </select>
+                    </div>
+                    <div style="width:calc(100% - 35px);height:100%;position:absolute;left:0;top:0;right:0;">
+                      <input name="returnPreNoInput" class="form-control" type="text" placeholder="选择或扫描……" value=""  style="border:0;background-color:unset;font-size:small">
+                    </div>
+                  </div>
+                  <div class="input-group-prepend">
+                    <b class="input-group-text" style="font-size:small">输入数量(小包)</b>
+                  </div>
+                  <input name="retuNumber" class="form-control" type="number" style="font-size:small">
+                  <input name="retuReason" class="form-control" type="text" style="font-size:small;display:none" placeholder="超过限制，标注原因或寻求领班帮助">
+                  <div class="input-group-prepend">
+                    <button name="btnAddRow" class="btn btn-sm btn-primary">+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:20px;margin-bottom:10px">
+          <div class="col">
+            <button id="btnRetuSubmit" class="btn btn-success">提交</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="showModalViewEditRETU" style="width:60%; position: fixed; left: 20% ; top: 0;display: none; background-color: #fff; z-index: 200">
+    <div class="container" style="margin-top:10px">
+      <div class="card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px;">
+        <h5 style="text-align:center"><button id="btnCancleCurrentRETU" class="btn-sm btn-secondary" style="float:left">返回</button>查询编辑退料<button id="btnSaveCurrentRETU" class="btn-sm btn-warning" style="float:right">保存</button></h5>
+        <div class="row" style="margin-top:20px">
+          <div class="col text-center"> <table cellspacing="0" align="center" style="table-layout:auto;width:100%;font-size:small;word-break:break-all">
+              <thead>
+                <tr style="background:rgb(218,41,28);color:white">
+                  <th>行数</th>
+                  <th>日期</th>
+                  <th>班次</th>
+                  <th>机台</th>
+                  <th>拌料编码</th>
+                  <th>配方编码</th>
+                  <th>类别</th>
+                  <th>包数</th>
+                </tr>
+              </thead>
+              <tbody id="tbodyMachinePrevRetuInfo">
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="modalViewSarmOrPostageSelect" class="modal fade" style="margin-top:15%" role="dialog" aria-hidden="true" data-backdrop="static">
+    <div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header">
+          <h4 class="modal-title">选择查询对象</h4>
+          <button class="close" data-dismiss="modal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="row">
+            <div class="col text-center">
+              <button id="viewSarmTotalResult" class="btn btn-lg btn-warning">补减退结果</button>
+            </div>
+            <div class="col text-center">
+              <button id="viewPostageResult" class="btn btn-lg btn-primary">送料结果</button>
+            </div>
+          </div>
+        </div> <div class="modal-footer">
+        </div>
+      </div> </div> </div> <div id="modalOuter" style="opacity: 0.5; position: fixed;top: 0; left: 0;width: 100vw; height: 100vh; z-index: 100; background-color: #000; display: none;"></div>
+
+  <div class="toast" id="myToast" data-delay="2000" style="position: fixed; top: 10px; right: 10px;">
+    <div class="toast-header">
+      <strong class="mr-auto">系统提示</strong>
+      <button type="button" class="ml-2 mb-1 close" data-dismiss="toast">&times;</button>
+    </div>
+    <div class="toast-body">
+      默认内容
+    </div>
+  </div>
+
+  <div id="modalLayoutPicker" class="modal fade" role="dialog" aria-hidden="true" data-backdrop="static">
+    <div class="modal-dialog modal-xl" style="max-width: 95vw;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">请勾选需要合并自检的机台 <small class="text-muted">(点击机台选择实际生产SKU)</small></h5>
+          <button class="close" data-dismiss="modal">&times;</button>
+        </div>
+        <div class="modal-body" style="max-height: 70vh; overflow-y: auto; overflow-x: hidden; padding: 10px;">
+          <div id="layoutContainer" style="width: 100%; margin: 0 auto;">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <div class="mr-auto">
+            <span id="selectedTaskCount" class="badge badge-primary" style="font-size: 1rem;">已选任务: 1</span>
+          </div>
+          <button id="btnClearSelected" class="btn btn-outline-secondary">🗑️ 一键清空</button>
+          <button class="btn btn-secondary" data-dismiss="modal">取消</button>
+          <button id="btnConfirmMultiCheck" class="btn btn-success">确认并进入检查</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="planPickerTemplate" style="display: none;">
+    <div class="list-group plan-picker-list">
+    </div>
+  </div>
+
+  <?!=include("core_2.6.11_js");?>
+  <?!=include("compress_1.1.1_js");?>
+  <?!=include("limonte_sweetalert2_11.4.4_js");?>
+  <?!=include("jquery_3.5.1_js");?>
+  <?!=include("dayjs_1.10.4_js");?>
+  <?!=include("moment_2.29.1_js");?>
+  <?!=include("popper_1.16.1_js");?>
+  <?!=include("bootstrap_4.5.3_js");?>
+  <?!=include("bootstrap_datepicker_1.9.0_js");?>
+  <?!=include("bootstrap_datepicker_zh_cn_1.9.0_js");?>
+  <?!=include("bootstrap_select_1.13.18_js");?>
+  <?!=include("jsbarcode_3.3.20_js");?>
+  <?!=include("ViewPlanScript");?>   
+</body>
+</html>

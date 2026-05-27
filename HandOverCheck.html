@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ch">
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <?!=include("bootstrap_4.5.3_css");?>
+    <?!=include("bootstrap_datepicker_1.9.0_css");?>
+    <?!=include("bootstrap_select_1.13.18_css");?>
+    <?!=include("jquery_ui_1.12.1_css");?>
+    <?!=include("limonte_sweetalert2_11.4.4_css");?>
+    <?!=include("fontawesome_4.5_js");?>
+    <?!=include("CSS");?>
+  </head>
+  <body>
+    <div class="container" style="margin-top:0px">
+      <h3 class="text-center" style="background-color:rgb(218,41,28);color:white;padding:10px">
+        <?=title;?>
+      </h3>
+    </div>
+
+    <div class="container" style="margin-top:10px">
+      <ul class="nav nav-tabs" id="taskTabs" role="tablist">
+      </ul>
+    </div>
+    
+    <div class="container tab-content" id="taskTabContent" style="margin-top:10px">
+    </div>
+
+    <template id="handOverFormTemplate">
+      <div class="card task-card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px">
+        <div class="row" style="margin-bottom: 0px;">
+          <div class="col-2" style="margin-top: 0px;">
+            <label for="usernameID" style="font-size:small">姓名</label>
+            <input id="usernameID" type="text" class="form-control" value="XXX" style="font-size: small;" disabled>
+          </div>
+          <div class="col-2" style="margin-top: 0px;">
+            <label for="SAPCodeID" style="font-size:small">工号</label>
+            <input id="SAPCodeID" type="text" class="form-control" value="XXXXX" style="font-size: small;" disabled>
+          </div>
+          <div class="col-2" style="margin-top: 0px;">
+            <label for="workshopID" style="font-size:small">车间</label>
+            <input id="workshopID" type="text" class="form-control" value="XXX" style="font-size: small;" disabled>
+          </div>
+          <div class="col-2" style="margin-top: 0px;">
+            <label for="lineInputBoxID" style="font-size:small">机台号</label>
+            <input id="lineInputBoxID" type="text" class="form-control" value="XXXXXXXX" style="font-size: small;" disabled>
+          </div>
+          <div class="col-4" style="margin-top: 0px;">
+            <label for="timeInputID" style="font-size:small">时间</label>
+            <input id="timeInputID" type="text" class="form-control" value="YYYY-MM-DD HH:mm:ss" style="font-size: small;" disabled>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:20px;margin-bottom: 0;">
+          <div class="col-4" id="leftContent">
+            <table id="handoverCheckTableID" cellspacing="0" align="center" style="table-layout:fixed;width:100%;font-size:small;word-break:break-all">
+              <tr style="height: 60px; padding: 0; margin: 1px;">
+                <td style="font-size: small; padding: 0;width:10%">
+                  <label><input style="zoom:200%;vertical-align:middle" id="handoverCheck1" type="checkbox" checked><span></span></label>
+                </td>
+                <td style="font-size: small; padding: 2px;text-align:center;width:25%">安全检查</td>
+                <td style="padding: 0;width:65%">
+                  <textarea id="handoverComment1" class="form-control" rows="4" style="font-size: small; text-align: left;resize:none;" placeholder="异常备注"></textarea>
+                </td>
+              </tr>
+              <tr style="height: 60px; padding: 0; margin: 1px;">
+                <td style="font-size: small; padding: 0;width:10%">
+                  <label><input style="zoom:200%;vertical-align:middle" id="handoverCheck2" type="checkbox" checked><span></span></label>
+                </td>
+                <td style="font-size: small; padding: 2px;text-align:center;width:25%">GMP检查</td>
+                <td style="padding: 0;width:65%">
+                  <textarea id="handoverComment2" class="form-control" rows="4" style="font-size: small; text-align: left;resize:none;" placeholder="异常备注"></textarea>
+                </td>
+              </tr>
+              <tr style="height: 60px; padding: 0; margin: 1px;">
+                <td style="font-size: small; padding: 0;width:10%">
+                  <label><input style="zoom:200%;vertical-align:middle" id="handoverCheck3" type="checkbox" checked><span></span></label>
+                </td>
+                <td style="font-size: small; padding: 2px;text-align:center;width:25%">5S/AM检查</td>
+                <td style="padding: 0;width:65%">
+                  <textarea id="handoverComment3" class="form-control" rows="4" style="font-size: small; text-align: left;resize:none;" placeholder="异常备注"></textarea>
+                </td>
+              </tr>
+            </table>
+          </div>
+
+          <div id="divDocHeight" class="col-8" style="min-height: 60vh; float: right;">
+            <iframe id="documentID" src="" width="100%" height="100%" style="border: 1px solid #ccc;"></iframe>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <div class="row" style="margin-top:20px;margin-bottom:20px">
+      <div id="selectReasonsContID" class="col-3 offset-1">
+        <label for="reportSelectReasons" style="font-size: small;">统一领班处理意见</label>
+        <select id="reportSelectReasons" class="form-control" style="font-size: small;">
+          <option value="问题已解决" style="font-size: small;" selected>问题已解决</option>
+          <option value="问题处理中, 经确认可生产" style="font-size: small;">问题处理中, 经确认可生产</option>
+          <option value="问题处理中, 经确认需停机" style="font-size: small;">问题处理中, 经确认需停机</option>
+        </select>
+      </div>
+      <div id="SAPCodeInputBoxContID" class="col-2">
+        <label for="SAPCodeInputBoxID" style="font-size: small;">领班工号</label>
+        <input id="SAPCodeInputBoxID" type="text" inputmode='numeric' class="form-control" data-length="5" style="font-size: small;" placeholder="有异常时必填">
+      </div>
+      <div id="PasswordInputBoxContID" class="col-2">
+        <label for="PasswordInputBoxID" style="font-size: small;">领班密码</label>
+        <input id="PasswordInputBoxID" type="password" class="form-control" style="font-size:small" placeholder="有异常时必填">
+      </div>
+      <div class="col-2">
+        <label for="recordSubmit" style="font-size:small">若验证通过，无需确认</label>
+        <button id="recordSubmit" class="form-control btn btn-sm btn-danger" type="button">全部保存</button>
+      </div>
+    </div>
+    
+    <div class="container" style="margin-top:40px">
+      <div class="row">
+        <div class="col">
+          <h6 class="text-center" style="color:#B8B8B8">
+            Copyright © 2020 CSX All Rights Reserved
+          </h6>
+        </div>
+      </div>
+    </div>
+
+    <?!=include("core_2.6.11_js");?>
+    <?!=include("compress_1.1.1_js");?>
+    <?!=include("limonte_sweetalert2_11.4.4_js");?>
+    <?!=include("jquery_3.5.1_js");?>
+    <?!=include("dayjs_1.10.4_js");?>
+    <?!=include("moment_2.29.1_js");?>
+    <?!=include("popper_1.16.1_js");?>
+    <?!=include("bootstrap_4.5.3_js");?>
+    <?!=include("bootstrap_datepicker_1.9.0_js");?>
+    <?!=include("bootstrap_datepicker_zh_cn_1.9.0_js");?>
+    <?!=include("bootstrap_select_1.13.18_js");?>
+    <?!=include("HandOverCheckScript");?>   
+  </body>
+</html>

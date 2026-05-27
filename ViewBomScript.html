@@ -1,0 +1,332 @@
+<script>
+  let execUrl = "";
+  let currentBomPool = []; 
+  let dbPromise = null;
+
+  /**
+   * 浏览器键盘与鼠标右键安全拦截防护
+   */
+  window.onload = function() {       
+    document.onkeydown = function() {
+      let e = window.event || arguments[0];
+      if (e.keyCode == 123) {         
+        return false;
+      } else if ((e.ctrlKey) && (e.shiftKey) && (e.keyCode == 73)) {
+        return false;
+      }
+    };
+    document.oncontextmenu = function() {
+      return false;
+    };
+  };
+
+  /**
+   * 打开本地 IndexedDB 数据库连接
+   */
+  function openDB() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise(function(resolve, reject) {
+      const req = indexedDB.open("cp_app_db", 1);
+      req.onupgradeneeded = function(e) {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains("kv")) {
+          db.createObjectStore("kv");
+        }
+      };
+      req.onsuccess = function() { resolve(req.result); };
+      req.onerror = function() { reject(req.error); };
+    });
+    return dbPromise;
+  }
+  
+  /**
+   * 从 IndexedDB 中读取指定键的数据
+   */
+  async function idbGet(key) {
+    const db = await openDB();
+    return new Promise(function(resolve, reject) {
+      const tx = db.transaction("kv", "readonly");
+      const req = tx.objectStore("kv").get(key);
+      req.onsuccess = function() { resolve(req.result); };
+      req.onerror = function() { reject(req.error); };
+    });
+  }
+
+  /**
+   * 主入口程序：强制 100% 依赖本地数据库，实施断网级秒开
+   */
+  $(document).ready(async function () {
+    // 1. 异步获取执行发布链接
+    google.script.run.withSuccessHandler(function(result) {
+      execUrl = result;
+    }).getReleaseWebPage();
+
+    // 2. 初始化加载页面基础会话变量
+    let lineInputId = sessionStorage.getItem("viewBomMachine");
+    $("#lineInputID").val(lineInputId);
+    
+    let materialInputId = sessionStorage.getItem("viewBomSku");
+    $("#materialInputID").val(materialInputId);
+    
+    // 获取包装手包的 SKU
+    let psku = sessionStorage.getItem("viewBomPsku");
+
+    // 【智能翻译】：兼容老版 Y/N 并映射到新 HTML 选项
+    let lineMoldType = sessionStorage.getItem("viewBomMoldType");
+    let $moldTypeSelect = $("#lineMoldType");
+    let options = [];
+    $moldTypeSelect.find("option").each(function() { options.push($(this).val()); });
+
+    if (options.indexOf(lineMoldType) !== -1) {
+      $moldTypeSelect.val(lineMoldType);
+    } else {
+      if (lineMoldType === "Y") {
+        let matchY = options.find(function(opt) { return opt.indexOf("自动模") > -1; });
+        $moldTypeSelect.val(matchY || options[0]);
+      } else if (lineMoldType === "N") {
+        let matchN = options.find(function(opt) { return opt.indexOf("分步模") > -1; });
+        $moldTypeSelect.val(matchN || options[0]);
+      } else {
+        $moldTypeSelect.prop("selectedIndex", 0);
+      }
+    }
+
+    // 3. 【一刀切核心】：强制从 IndexedDB 提取缓存。如果没有，直接触发防呆红灯拦截！
+    try {
+      let cachedBomData = await idbGet("sSArrInjAllPlanBomData") || [];
+      if (cachedBomData.length === 0) {
+        throw new Error("本地数据库为空");
+      }
+
+      // ========== A. 提取注塑散刷 (TF) BOM ==========
+      let tfBomRaw = cachedBomData[0] || [];
+      let targetSku = materialInputId.toString().split(",")[0].split("|")[0];
+      let mappedBomPool = [];
+      
+      for (let i = 0; i < tfBomRaw.length; i++) {
+        let x = tfBomRaw[i];
+        if (x[4] && x[4].toString().indexOf(targetSku) !== -1) {
+          let temp = [];
+          temp[0] = x[0];
+          temp[2] = x[2];
+          temp[3] = x[3];
+          temp[5] = "生效";
+          temp[7] = x[5]; // 注塑BOM URL
+          mappedBomPool.push(temp);
+        }
+      }
+
+      // ========== B. 提取包装手包 (PK) BOM (核心修复区) ==========
+      let pkBomRaw = cachedBomData[2] || [];
+      let targetPsku = psku ? psku.toString().split(",")[0].split("|")[0] : "";
+      
+      if (targetPsku !== "") {
+        for (let j = 0; j < pkBomRaw.length; j++) {
+          let pk = pkBomRaw[j];
+          // 包装BOM的主料号在第1列(pk[0])，文件URL在第6列(pk[5])
+          if (pk[0] && pk[0].toString().indexOf(targetPsku) !== -1) {
+            let pkBomUrl = pk[5]; 
+            if (pkBomUrl) {
+              $("#pkBomInputID").val(pk[2]);
+              $("#pkBomDocumentID").show();
+              $("#pkBomDocumentID").prop("src", pkBomUrl);
+              break; // 找到对应的包装BOM，立刻停止搜索
+            }
+          }
+        }
+      }
+
+      // ========== C. 触发渲染 ==========
+      if (mappedBomPool.length > 0) {
+        currentBomPool = mappedBomPool;
+        // 先瞬间渲染出 PDF 图纸
+        renderBomToIframe(lineInputId);
+        
+        // 图纸出来后，再静默去请求右侧的“转换备注”
+        let finalBomId = $("#bomInputID").val();
+        if (finalBomId) fetchBomRemarks(finalBomId);
+
+      } else {
+        // 如果当前 SKU 在缓存里完全没数据，抛出警告
+        showFatalError("当前物料(" + targetSku + ")未配置生效的散刷BOM。<br>可能是后台主数据遗漏，或本地数据未同步。");
+      }
+
+    } catch(idbErr) {
+      console.warn("读取本地缓存失败: ", idbErr);
+      showFatalError("本地标准数据已过期或被清理。<br><br><b>请返回【查看计划】主界面重新刷新！</b>");
+    }
+  });
+
+  /**
+   * 致命错误防呆拦截弹窗，强制要求用户返回排产看板重载数据
+   */
+  function showFatalError(msg) {
+    $("#loadingRemark").hide();
+    Swal.fire({
+      allowOutsideClick: false, 
+      icon: "error", 
+      title: "数据拦截", 
+      html: "<p style='font-size:16px'>" + msg + "</p>", 
+      showConfirmButton: true,
+      confirmButtonText: "我知道了"
+    });
+  }
+
+  /**
+   * 独立调用的网络请求：仅极速拉取转换备注
+   */
+  function fetchBomRemarks(bomId) {
+    $("#loadingRemark").fadeIn();
+    $("#newOldChangeNum").hide();
+
+    google.script.run
+      .withFailureHandler(function(e) {
+        $("#loadingRemark").hide();
+        $("#newOldChangeNum").fadeIn();
+        console.error("拉取备注失败:", e);
+      })
+      .withSuccessHandler(function(result) {
+        $("#loadingRemark").hide();
+        $("#newOldChangeNum").fadeIn();
+        
+        let transferCommTbody = $("#transferCommTbody");
+        transferCommTbody.empty();
+
+        if (result[0] === "OK") {
+          let arrData = result[1];
+          if (arrData.length > 0) {
+            $("#newOldChangeNum").text("(" + arrData.length + ")");
+            for (let i = 0; i < arrData.length; i++) {
+              let str = "<tr>" +
+                          "<td>" + arrData[i][0] + "</td>" +
+                          "<td>" + arrData[i][1] + "</td>" +
+                          "<td>" + arrData[i][2] + "</td>" +
+                          "<td>" + arrData[i][3] + "</td>" +
+                          "<td>" + arrData[i][4] + "</td>" +
+                          "<td>" + arrData[i][5] + "</td>" +
+                          "<td>" + arrData[i][6] + "</td>" +
+                          "<td>" + arrData[i][7] + "</td>" +
+                        "</tr>";
+              transferCommTbody.append(str);
+            }
+          } else {
+            $("#newOldChangeNum").text("(0)");
+          }
+        } else {
+          $("#newOldChangeNum").text("(Error)");
+        }
+      })
+      .getBomChangeRemarks(bomId);
+  }
+
+  /**
+   * 核心重构：BOM PDF 匹配判定与渲染函数 (支持全自动选项对仗及智能降级)
+   */
+  async function renderBomToIframe(lineInputId) {
+    if (!currentBomPool || currentBomPool.length === 0) return;
+
+    let $select = $("#lineMoldType");
+    let selectedMoldType = $select.val() || "";
+    let arrTfBom0 = [];
+
+    if (lineInputId.slice(0, 1) == "S") {
+      arrTfBom0 = currentBomPool.filter(function(x) { return x[5] == "生效"; });
+    } else {
+      arrTfBom0 = currentBomPool.filter(function(x) { 
+        let typeStr = x[3] ? x[3].toString().trim() : "";
+        return typeStr.indexOf(selectedMoldType) > -1; 
+      });
+
+      // 智能降级兜底
+      if (arrTfBom0.length === 0 && currentBomPool.length > 0) {
+        console.warn("未精确命中特定模具特征，执行防呆降级，全量开闸放行...");
+        arrTfBom0 = currentBomPool;
+      }
+    }
+
+    let tfBomInputId = "";
+    let tfBomUrl = "";
+
+    if (arrTfBom0.length > 0 && arrTfBom0.length < 2) {
+      tfBomInputId = arrTfBom0[0][0];
+      tfBomUrl = arrTfBom0[0][7];
+    } else if (arrTfBom0.length > 1) {
+      let objBundles = {};
+      for (let i = 0; i < arrTfBom0.length; i++) {
+        objBundles["【" + arrTfBom0[i][0] + "】" + arrTfBom0[i][2]] = "【" + arrTfBom0[i][0] + "】" + arrTfBom0[i][2];
+      }
+      let { value: type } = await Swal.fire({
+        allowOutsideClick: false,
+        title: "检测到多个BOM",
+        input: "select",
+        inputOptions: objBundles,
+        inputPlaceholder: "请选择适配品种",
+        showCancelButton: true,
+        inputValidator: (value) => {
+          return new Promise((resolve) => {
+            if (value !== "") { resolve(); } else { resolve("请选择适配品种"); }
+          });
+        }
+      });
+      if (type) {
+        tfBomInputId = arrTfBom0.filter(function(v) { return "【" + v[0] + "】" + v[2] == type; })[0][0];
+        tfBomUrl = arrTfBom0.filter(function(v) { return "【" + v[0] + "】" + v[2] == type; })[0][7];
+      } else {
+        tfBomInputId = arrTfBom0[0][0];
+        tfBomUrl = arrTfBom0[0][7];
+      }
+    }
+
+    if (tfBomInputId != "") {
+      $("#bomInputID").val(tfBomInputId);
+      $("#bomDocumentID").prop("src", tfBomUrl);
+    } else {
+      showFatalError("匹配失败：找不到适配的生效 BOM。");
+    }
+  }
+
+  /**
+   * 监听模具配置下拉框动态切换事件
+   */
+  $("#lineMoldType").on("change", function() {
+    let lineInputId = $("#lineInputID").val();
+    renderBomToIframe(lineInputId);
+    
+    // 切换 BOM 后，由于 BOM 号变了，重新获取新 BOM 的转换备注
+    let finalBomId = $("#bomInputID").val();
+    if (finalBomId) fetchBomRemarks(finalBomId);
+  });
+
+  /**
+   * 切换折叠备注时的 UI 拉伸适配
+   */
+  // $("#collapseExample").on("show.bs.collapse", function () {
+  //   let pkBomDocHeight = $("#pkBomDocHeight").height();
+  //   let pkBomDocShowIf = $("#pkBomDocumentID").is(":hidden");
+  //   if (pkBomDocShowIf) {
+  //     $("#divScroll").height(398);
+  //   } else {
+  //     $("#divScroll").height(150);
+  //     if (pkBomDocHeight == 390) {
+  //       $("#pkBomDocHeight").height(240);
+  //     } else {
+  //       $("#pkBomDocHeight").height(390);
+  //     }
+  //   }
+  // });
+  
+  $("#collapseExample").on("hidden.bs.collapse", function () {
+    let pkBomDocShowIf = $("#pkBomDocumentID").is(":hidden");
+    if (!pkBomDocShowIf) {
+      $("#pkBomDocHeight").height(390);
+    }
+  });
+  
+  /**
+   * 点击【转换】按钮
+   */
+  $("#bomTransferButtonID").on("click", function() {
+    window.open(execUrl + "?v=Transfer");
+  });
+
+</script>

@@ -1,0 +1,255 @@
+<script>
+  let execUrl = "";
+  const timearr = [0, 0]; // 用于记录时间戳的全局变量
+
+  /**
+   * ==========================================
+   * 页面安全防护设置
+   * ==========================================
+   * 禁用鼠标右键菜单与浏览器的开发者调试快捷键 (F12, Ctrl+Shift+I)
+   */
+  window.onload = function() {       
+    document.onkeydown = function() {
+      let e = window.event || arguments[0];
+      if (e.keyCode == 123) {         
+        return false;
+      } else if ((e.ctrlKey) && (e.shiftKey) && (e.keyCode == 73)) {
+        return false;
+      }
+    }
+    document.oncontextmenu = function() {
+      return false;
+    }
+  }
+
+  /**
+   * ==========================================
+   * 页面主加载与数据初始化
+   * ==========================================
+   * 从 sessionStorage 读取传递的机台和进度数据，动态配置表单和物理班次
+   */
+  $(document).ready(function () {
+    // 异步拉取后端发布的 Web URL
+    google.script.run.withSuccessHandler(result => { execUrl = result; console.log(execUrl) }).getReleaseWebPage();
+    
+    // 提取并填充上下文状态
+    let machine = sessionStorage.getItem("insertPlanMachine");
+    $("#insertPlanMachine").val(machine);
+    
+    let out = sessionStorage.getItem("insertPlanOut");
+    $("#insertPlanOut").val(out);
+    
+    let workshop = sessionStorage.getItem("insertPlanDep");
+    $("#insertPlanDep").val(workshop);
+    
+    let moldType = sessionStorage.getItem("insertPlanMoldType");
+    $("#insertFromMoldType").val(moldType);
+    $("#insertPlanMoldType").val(moldType);
+    
+    // 模具号较短说明未成组，允许手动干预修改模具
+    if (moldType.toString().length < 11) {
+      $("#selectMachineMoldType").prop("disabled", false);
+    }
+    
+    // 根据当前时间计算并填充逻辑排班表 (早中夜)
+    let table = $("#tbodyInsertPlanDisplay");
+    let nowDate = moment().format("YYYY-MM-DD").toString();
+    let now = new Date();
+    let nowHour = now.getHours();
+    let shift = "";
+    
+    if (nowHour >= 0 && nowHour < 8) {
+      shift = "夜";
+    } else if (nowHour >= 8 && nowHour < 16) {
+      shift = "早";
+    } else if (nowHour >= 16 && nowHour <= 24) {
+      shift = "中";
+    }
+    
+    // 将计算好的基础信息推入前端各个隐藏域和表格单元格内
+    $("#insertDate").val(nowDate);
+    $("#insertShift").val(shift);
+    table.find("tr").eq(0).find("td").eq(2).children().val(nowDate);
+    table.find("tr").eq(0).find("td").eq(3).children().val(shift);
+    table.find("tr").eq(0).find("td").eq(4).children().val(machine);
+    table.find("tr").eq(0).find("td").eq(8).children().val(moldType);
+    table.find("tr").eq(0).find("td").eq(16).children().val(out);
+  });
+  
+  /**
+   * ==========================================
+   * 移模机台改变事件：智能带出模具号
+   * ==========================================
+   * 当用户变更了 [移出机台] 选项时，查询全局计划表，将该机台当前的模具配置拉出并覆盖
+   */
+  $("#insertFromMachine").on("change", function() {
+    let todayDate = moment($("#insertDate").val()).format("YYYY-MM-DD").toString();
+    let todayShift = $("#insertShift").val();
+    let insertFromMachine = $("#insertFromMachine").val();
+    let txtPlan = sessionStorage.getItem("sSAllPlan");
+    let arrPlan = JSON.parse(txtPlan);
+    let moldType = "";
+    
+    // 生成查重指纹: 日期 + 班次 + 机台号前8位
+    let arrDateShiftMachine = arrPlan.map(function(x) {
+      return x[2] + x[3] + x[4].toString().substr(0, 8);
+    });
+    
+    if (insertFromMachine != "") {
+      let position = arrDateShiftMachine.indexOf(todayDate + todayShift + insertFromMachine.toString().substr(0, 8));
+      if (position != -1) {
+        moldType = arrPlan[position][8];
+      }
+    } else {
+      moldType = $("#insertPlanMoldType").val();
+    }
+   
+    $("#insertFromMoldType").val(moldType);
+    let table = $("#tbodyInsertPlanDisplay");
+    table.find("tr").eq(0).find("td").eq(8).children().val(moldType);
+  });
+  
+  /**
+   * ==========================================
+   * 刷新清理 [移出机台] 下拉框
+   * ==========================================
+   */
+  $('#insertFromMachine').on('show.bs.select', function() {
+    $('#insertFromMachine').selectpicker('val', ['']);
+    $('#insertFromMachine').selectpicker('refresh');
+    $("#insertFromMoldType").val($("#insertPlanMoldType").val());
+  });
+
+  /**
+   * ==========================================
+   * 选择机台初始模具改变事件
+   * ==========================================
+   * 当用户改变机台初始模具时，动态为新计划赋予特殊后缀 _TempInsert 标识临时增开属性
+   */
+  $("#selectMachineMoldType").on("change", function() {
+    let selectMachineMoldType = $("#selectMachineMoldType").val();
+    if (selectMachineMoldType) {
+      let table = $("#tbodyInsertPlanDisplay");
+      let machine = table.find("tr").eq(0).find("td").eq(4).children().val();
+      
+      let newMoldTemp = selectMachineMoldType + "-" + machine + "_TempInsert";
+      $("#insertPlanMoldType").val(newMoldTemp);
+      $("#insertFromMoldType").val(newMoldTemp);
+      table.find("tr").eq(0).find("td").eq(8).children().val(newMoldTemp);
+    }
+  });
+
+  /**
+   * ==========================================
+   * 对应 SKU 模具号改变事件
+   * ==========================================
+   * 用户强制更换 SKU 相关模具时同样执行增开指纹附加逻辑
+   */
+  $("#selectSkuMoldType").on("change", function() {
+    let selectSkuMoldType = $("#selectSkuMoldType").val();
+    if (selectSkuMoldType) {
+      let table = $("#tbodyInsertPlanDisplay");
+      let machine = table.find("tr").eq(0).find("td").eq(4).children().val();
+      
+      let newSkuTemp = selectSkuMoldType + "-" + machine + "_TempInsert";
+      $("#insertPlanMoldType").val(newSkuTemp);
+      $("#insertFromMoldType").val(newSkuTemp);
+      table.find("tr").eq(0).find("td").eq(8).children().val(newSkuTemp);
+    }
+  });
+
+  /**
+   * ==========================================
+   * AEM 单元格隐藏彩蛋：解锁手输模式
+   * ==========================================
+   * 双击机器 AEM 单元格可取消模具选择器的禁用状态，允许技术员强制覆盖
+   */
+  $("#tbodyInsertPlanDisplay").on("dblclick", "textarea[name='cancelDisabled']", function() {
+    console.log("取消不可用状态");
+    $("#selectMachineMoldType").prop("disabled", false);
+    $("#selectMachineMoldType").selectpicker('refresh');
+  });
+  
+  /**
+   * ==========================================
+   * 自动物料匹配查询：输入 SKU 失去焦点后抓出 BOM 名称
+   * ==========================================
+   */
+  $("#tbodyInsertPlanDisplay").on("blur", "td", function() {
+    let table = $("#tbodyInsertPlanDisplay");
+    let tdSeq = $(this).index();
+    
+    // 如果失去焦点的是 SKU 列 (第9列)
+    if (tdSeq == 9) {
+      let txtBom = sessionStorage.getItem("sSAllBom");
+      let arrBom = JSON.parse(txtBom);
+      let arrSkuMap = arrBom.map(function(x) { return x[3].toString() });
+      let valueTemp = $(this).find("select").val();
+      
+      if (valueTemp == "") {
+        // 清空产品名称
+        table.find("tr").eq(0).find("td").eq(7).children().val("");
+      } else {
+        // 抓取并回显正确的物料描述
+        let optionTemp = arrSkuMap.indexOf(valueTemp);
+        let desTemp = arrBom[optionTemp][4];
+        table.find("tr").eq(0).find("td").eq(7).children().val(desTemp);
+      }
+    }
+  });
+
+  /**
+   * ==========================================
+   * 最终防呆校验与发包提交流程
+   * ==========================================
+   * 读取表格中组装完毕的所有变量，将其封包投递至后端引擎
+   */
+  $("#btnSubmitInsertPlan").on("click", function() {
+    let moldType = $("#insertFromMoldType").val();
+    
+    // 模具号长度校验 (防止选择残缺或错误数据)
+    if (moldType.toString().length > 11) {
+      let table = $("#tbodyInsertPlanDisplay");
+      let workshop = $("#insertPlanDep").val();
+      let arrWorkShop = ["TB1", "TB2"];
+      let arrPlanName = ["All_INJ", "All_INJ"];
+      let arrData = [];
+      let planName = arrPlanName[arrWorkShop.indexOf(workshop)];
+      let cols = table.find("tr").eq(0).find("td").length;
+      let valueTemp = "";
+      
+      // 遍历表格并构建请求体数组
+      for (let i = 0; i < cols; i++) {
+        valueTemp = "";
+        // SKU 下拉框与手包下拉框属于 Select 组件，使用特殊获取方法
+        if (i == 9 || i == 10) {
+          valueTemp = table.find("tr").eq(0).find("td").eq(i).find("select").val();
+        } else {
+          valueTemp = table.find("tr").eq(0).find("td").eq(i).children().val();
+        }
+        arrData.push(valueTemp);
+      }
+      console.log(arrData);
+      
+      // 【关键 Bug 修复】：严格校验输入的 PO 长度及确保 SKU 不为空
+      // replace 必须使用正规的字面量正则形式，不能包裹双引号，否则替换将失效导致误拦截！
+      if (arrData[1].toString().replace(/[【】]/g, "").length != 9 || arrData[9] == "") {
+        Swal.fire({allowOutsideClick: false, icon: 'error', title: '提醒', text: "PO位数不为9位数 | SKU不能为空", showConfirmButton: true});
+      } else {
+        Swal.fire({allowOutsideClick: false, icon: 'info', title: '提醒', text: "正在插入计划……", showConfirmButton: false, footer: '<p>完成窗口会自动关闭</p>'});
+        google.script.run.withSuccessHandler(htmlWriteInsertPlan).writeInsertPlan(arrData, planName);
+        
+        // 成功回调处理
+        function htmlWriteInsertPlan(result) {
+          if (result[0] == "OK") {
+            Swal.fire({allowOutsideClick: false, icon: 'success', title: '提醒', text: "插入成功", showConfirmButton: true, footer: '<p style="color:red;font-size:24px">请通知员工刷新平板</p>'});
+          } else {
+            Swal.fire({allowOutsideClick: false, icon: 'error', title: '提醒', text: "插入失败：" + result[1], showConfirmButton: true});
+          }
+        }
+      }
+    } else {
+      Swal.fire({allowOutsideClick: false, icon: 'error', title: '提醒', text: "模具号信息有误", showConfirmButton: true});
+    }
+  });
+</script>

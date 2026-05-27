@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ch">
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh",content="5">
+    <!-- <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.5.3/css/bootstrap.min.css" integrity="sha512-oc9+XSs1H243/FRN9Rw62Fn8EtxjEYWHXRvjS43YtueEewbS6ObfXcJNyohjHqVKFPoXXUxwc+q1K7Dee6vv9g==" crossorigin="anonymous" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/css/bootstrap-datepicker.min.css" integrity="sha512-mSYUmp1HYZDFaVKK//63EcZq4iFWFjxSL+Z3T/aCt4IO9Cejm03q3NKKYN6pFQzY0SBOr8h+eCIAZHPXcpZaNw==" crossorigin="anonymous" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.18/css/bootstrap-select.min.css" integrity="sha512-ARJR74swou2y0Q2V9k0GbzQ/5vJ2RBSoCWokg4zkfM29Fb3vZEQyv0iWBMW/yvKgyHSR/7D64pFMmU8nYmbRkg==" crossorigin="anonymous" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.css" integrity="sha512-aOG0c6nPNzGk+5zjwyJaoRUgCdOrfSDhmMID2u4+OIslr0GjpLKo7Xm0Ao3xmpM4T8AmIouRkqwj1nrdVsLKEQ==" crossorigin="anonymous" /> -->
+    <!-- <script src="https://kit.fontawesome.com/f6353ffdae.js" crossorigin="anonymous"></script> -->
+    <?!=include("bootstrap_4.5.3_css");?>
+    <?!=include("bootstrap_datepicker_1.9.0_css");?>
+    <?!=include("bootstrap_select_1.13.18_css");?>
+    <?!=include("jquery_ui_1.12.1_css");?>
+    <?!=include("limonte_sweetalert2_11.4.4_css");?>
+    <?!=include("fontawesome_4.5_js");?>
+    <?!=include("CSS");?>
+  </head>
+  <body>
+    <div class="container" style="margin-top:10px">
+        <h1 class="text-center" style="background-color:rgb(218,41,28);color:white;padding:10px">
+          <?=title;?>
+        </h1>
+    </div>
+    
+    <div class="container" style="margin-top:10px">
+      <div class="card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px">
+      
+        <div class="row" style="margin-bottom: 0px;">
+          <div class="col-2" style="margin-top: 0px;">
+            <label for="usernameID" style="font-size:small">姓名</label>
+            <input id="usernameID" type="text" class="form-control" style="font-size:small" value="XXX" disabled>
+          </div>
+          <div class="col-2" style="margin-top: 0px;">
+            <label for="SAPCodeID" style="font-size:small">工号</label>
+            <input id="SAPCodeID" type="text" class="form-control" style="font-size:small" value="XXXXXXXX" disabled>
+          </div>
+          <div class="col-2" style="margin-top: 0px;">
+            <label for="workshopID" style="font-size:small">车间</label>
+            <input id="workshopID" type="text" class="form-control" style="font-size:small" value="XXX" disabled>
+          </div>
+          <div class="col-3" style="margin-top: 0px;">
+            <label for="materialInputID" style="font-size:small">物料</label>
+            <select id="materialInputID" class="form-control selectpicker" data-none-selected-text="选择物料……" data-size="5" data-live-search="true" data-live-search-placeholder="搜索" data-style="btn-outline-danger">
+              <option value="" selected>空白</option>
+              <?!=listMaterial?>
+            </select>
+          </div>
+          <div class="col-1" style="margin-top: 0px;">
+            <label for="displayBOMButtonID" style="font-size:small">　</label>
+            <button id="displayBOMButtonID" class="form-control btn btn-sm btn-danger">显示</button>
+          </div>
+        </div>
+        
+        <div class="row">
+          <div class="col s12">
+            <div id="divScroll" class="frozenTableR" style="height:400px">
+              <table id="BOMDisplayTableID" cellspacing="0" align="center" style="table-layout:fixed;width:100%;font-size:12px;word-break:break-all">
+                <thead>
+                  <tr style="height: 60px; font-family: Roboto sans-serif; border:black; background-color: whitesmoke">
+                    <th style="text-align:center;width:7%">BOM#</th>
+                    <th style="text-align:center;width:7%">取代#</th>
+                    <th style="text-align:center;width:8%">物料描述</th>
+                    <th style="text-align:center;width:7%">自动模</th>
+                    <th style="text-align:center;width:0%;display:none">SKU</th>
+                    <th style="text-align:center;width:7%">类型</th>
+                    <th style="text-align:center;width:7%">状态</th>
+                    <th style="text-align:center;width:12%">转换日期</th>
+                    <th style="text-align:center;width:7%">申请人</th>
+                    <th style="text-align:center;width:14%">申请时间</th>
+                    <th style="text-align:center;width:8%">申请机台</th>
+                    <th style="text-align:center;width:0%;display:none">链接</th>
+                    <th style="text-align:center;width:8%">批准转换</th>
+                    <th style="text-align:center;width:8%">BOM预览</th>
+                  </tr>
+                </thead>
+                <tbody id="BOMDisplayTableBodyID"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+ 
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/core-js/2.6.11/core.js" integrity="sha512-bPWjE2HtaVknpnoisaVW0eeFg8H4ApahJn++J7hd0fhdtZ5ZF5lkbd/DzxNfqT87CWxWJB34jDAvIokZp+6ENA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/limonte-sweetalert2/8.19.0/sweetalert2.all.js" integrity="sha512-sKTPG2ghaE73Rg/+qcfRfZvZNez1y+57bN0TArz0TLhGx8BtY657lqZrFnxyj2LAh/iV9F4v8aMLxt1Q1zgmUQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.js" integrity="sha512-WNLxfP/8cVYL9sj8Jnp6et0BkubLP31jhTG9vhL/F5uEZmg5wEzKoXp1kJslzPQWwPT1eyMiSxlKCgzHLOTOTQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.10.4/dayjs.min.js" integrity="sha512-0fcCRl828lBlrSCa8QJY51mtNqTcHxabaXVLPgw/jPA5Nutujh6CbTdDgRzl9aSPYW/uuE7c4SffFUQFBAy6lg==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.1/umd/popper.min.js" integrity="sha512-ubuT8Z88WxezgSqf3RLuNi5lmjstiJcyezx34yIU2gAHonIi27Na7atqzUZCOoY4CExaoFumzOsFQ2Ch+I/HCw==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.5.3/js/bootstrap.min.js" integrity="sha512-8qmis31OQi6hIRgvkht0s6mCOittjMa9GMqtK9hes5iEQBQE/Ca6yGE5FsW36vyipGoWQswBj/QBm2JR086Rkw==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/js/bootstrap-datepicker.min.js" integrity="sha512-T/tUfKSV1bihCnd+MxKD0Hm1uBBroVYBOYSk1knyvQ9VyZJpc/ALb4P0r6ubwVPSGB2GvjeoMAJJImBG12TiaQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/locales/bootstrap-datepicker.zh-CN.min.js" integrity="sha512-iDxVNnhHWKfWPm0vWzbiXqosxX8loK3oRcMg+QAlaDeLDi1HcUo96+xAVkgPI5JRR1SXN3aMQsMN1dB8H/Subg==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-select/1.13.18/js/bootstrap-select.min.js" integrity="sha512-yDlE7vpGDP7o2eftkCiPZ+yuUyEcaBwoJoIhdXv71KZWugFqEphIS3PU60lEkFaz8RxaVsMpSvQxMBaKVwA5xg==" crossorigin="anonymous"></script> -->
+    <?!=include("core_2.6.11_js");?>
+    <?!=include("compress_1.1.1_js");?>
+    <?!=include("limonte_sweetalert2_11.4.4_js");?>
+    <?!=include("jquery_3.5.1_js");?>
+    <?!=include("dayjs_1.10.4_js");?>
+    <?!=include("moment_2.29.1_js");?>
+    <?!=include("popper_1.16.1_js");?>
+    <?!=include("bootstrap_4.5.3_js");?>
+    <?!=include("bootstrap_datepicker_1.9.0_js");?>
+    <?!=include("bootstrap_datepicker_zh_cn_1.9.0_js");?>
+    <?!=include("bootstrap_select_1.13.18_js");?>
+    <?!=include("ApproveScript");?>   
+  </body>
+</html>

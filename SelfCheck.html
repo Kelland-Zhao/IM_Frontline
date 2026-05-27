@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="ch">
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <?!=include("bootstrap_4.5.3_css");?>
+    <?!=include("bootstrap_datepicker_1.9.0_css");?>
+    <?!=include("bootstrap_select_1.13.18_css");?>
+    <?!=include("jquery_ui_1.12.1_css");?>
+    <?!=include("limonte_sweetalert2_11.4.4_css");?>
+    <?!=include("fontawesome_4.5_js");?>
+    <?!=include("CSS");?>
+  </head>
+  <body>
+ 
+    <div class="container" style="margin-top:0px">
+      <h3 id="viewModalStandardData" class="text-center" style="background-color:rgb(218,41,28);color:white;padding:5px">
+        <?=title;?>
+      </h3>
+    </div>
+
+    <div class="container" style="margin-top:0px">
+      <ul class="nav nav-tabs" id="taskTabs" role="tablist"></ul>
+    </div>
+    
+    <div class="container tab-content" id="taskTabContent" style="margin-top:0px"></div>
+
+    <template id="selfCheckFormTemplate">
+      <div class="card task-card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px">
+        <div class="row" style="margin-bottom: 20px;">
+     
+          <div class="col-2" style="margin-top: 0;">
+            <label for="usernameID" style="font-size:small">姓名</label>
+            <input id="usernameID" type="text" class="form-control" value="XXX" style="font-size:small" disabled>
+          </div>
+          
+          <div class="col-2" style="margin-top: 0;">
+            <label for="SAPCodeID" style="font-size:small">工号</label>
+            <input id="SAPCodeID" type="text" class="form-control" value="XXXXX" style="font-size:small" disabled>
+          </div>
+          
+          <div class="col-2" style="margin-top: 0;">
+            <label for="lineMoldType" style="font-size:small;color:black">模具及拌料</label>
+            <select id="lineMoldType" class="form-control" style="font-size:small">
+              <option>自动模(自动拌料)</option>
+              <option>自动模(自动＋手工拌料)</option>
+              <option>分步模(手工拌料)</option>
+              <option>分步模(自动拌料)</option>
+            </select>
+          </div>
+          
+          <div class="col-1" style="margin-top: 0;">
+            <label for="workshopID" style="font-size:small">车间</label>
+            <input id="workshopID" type="text" class="form-control" value="XXX" style="font-size:small" disabled>
+          </div>
+          
+          <div class="col-2" style="margin-top: 0;">
+            <label for="materialInputID" style="font-size:small">物料</label>
+            <input id="materialInputID" type="text" class="form-control" value="XXXXXXXX" style="font-size:small" disabled>
+          </div>
+          
+          <div class="col-2" style="margin-top: 0;">
+            <label for="lineInputBoxID" style="font-size:small">机台号</label>
+            <input id="lineInputBoxID" type="text" class="form-control" value="XXXXXXXX" style="font-size:small" disabled>
+          </div>
+          
+          <div class="col-1" style="margin-top: 0;">
+            <label for="timeInputID" style="font-size:small">时间</label>
+            <input id="timeInputID" type="text" class="form-control" value="YYYY-MM-DD HH:mm:ss" style="font-size:small" disabled>
+          </div>
+          
+          <div class="col-2" style="margin-top: 0;display:none">
+            <label for="selfCheckNum" style="font-size:small">次数</label>
+            <input id="selfCheckNum" type="text" class="form-control" value="" style="font-size:small" disabled>
+          </div>
+
+          <div class="col-2" style="margin-top: 0;display:none">
+            <label for="selfCheckShiftModel" style="font-size:small">靠模</label>
+            <input id="selfCheckShiftModel" type="text" class="form-control" value="" style="font-size:small" disabled>
+          </div>
+
+          <div class="col-1" style="margin-top: 0;display:none">
+            <label for="selfCheckDefect" style="font-size:small">常见缺陷</label>
+            <input id="selfCheckDefect" type="text" class="form-control" value="" style="font-size:small" disabled>
+            <input id="selfDefectPicId" type="text" class="form-control" value="" style="font-size:small" disabled>
+          </div>
+
+          <div class="col-1" style="margin-top: 0;display:none">
+            <label for="pointCheckInfo" style="font-size:small">点检信息</label>
+            <input id="pointCheckInfo" type="text" class="form-control" value="" style="font-size:small" disabled>
+          </div>
+          
+        </div>
+
+        <div class="row">
+          <div class="col-4" id="leftPanel">
+            <div id="leftContent">
+              <div id="divMaterialInjection" class="row" style="display:none">
+                <div class="col">
+                  <table id="materialInjectionTableID" cellspacing="0" align="center" style="table-layout:fixed;width:100%;font-size:small;word-break:break-all">
+                    <thead>
+                      <tr style="display:none">
+                        <th style="text-align:center"></th>
+                        <th style="text-align:center"></th>
+                        <th style="text-align:center"></th>
+                        <th style="text-align:center"></th>
+                      </tr>
+                    </thead>
+                    <tbody id="materialInjectionTbodyID">
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:whitesmoke;text-align:center;width:20%">物料1</td>
+                        <td style="font-size:small;text-align:center;width:34%"><input type="text" value="" name="scanInput" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center;width:40%"><input type="text" value="" name="scanInput" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right;width:6%"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:whitesmoke;text-align:center">物料2</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" name="scanInput" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" name="scanInput" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:whitesmoke;text-align:center">物料3</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" name="scanInput" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" name="scanInput" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"><button onclick="clickAddNewRowToQCCTable(this)" class="btn btn-circle btn-sm btn-danger">+</button></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:whitesmoke;text-align:center">烫印膜</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" name="scanInput" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" name="scanInput" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:whitesmoke;text-align:center">原料1</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="暂不检验" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录" disabled></td>
+                        <td style="font-size:small;text-align:center;display:none"><input type="text" value="NA" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:whitesmoke;text-align:center">原料2</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="暂不检验" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录" disabled></td>
+                        <td style="font-size:small;text-align:center;display:none"><input type="text" value="NA" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background: whitesmoke;text-align:center">原料3</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="暂不检验" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录" disabled></td>
+                        <td style="font-size:small;text-align:center;display:none"><input type="text" value="NA" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"><button onclick="clickAddNewRowToQCCTable(this)" class="btn btn-circle btn-sm btn-warning" disabled>+</button></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background: whitesmoke;text-align:center">色母1</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background: whitesmoke;text-align:center">色母2</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background: whitesmoke;text-align:center">色母3</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"><button onclick="clickAddNewRowToQCCTable(this)" class="btn btn-circle btn-sm btn-danger">+</button></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background: whitesmoke;text-align:center">备用料1</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"><button onclick="clickAddNewRowToQCCTable(this)" class="btn btn-circle btn-sm btn-warning">+</button></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div id="divMaterialDecalPrint" class="row" style="display:none">
+                <div class="col">
+                  <table id="materialDecalPrintTableID" cellspacing="0" align="center" style="table-layout:fixed;width:100%;font-size:small;word-break:break-all">
+                    <thead>
+                      <tr style="display:none">
+                        <th style="text-align:center"></th>
+                        <th style="text-align:center"></th>
+                        <th style="text-align:center"></th>
+                        <th style="text-align:center"></th>
+                      </tr>
+                    </thead>
+                    <tbody id="materialDecalPrintTbodyID">
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:whitesmoke;text-align:center;width:30%">烫印膜</td>
+                        <td style="font-size:small;text-align:center;width:24%"><input type="text" value="M" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center;width:40%"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right;width:6%"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:whitesmoke;text-align:center">油墨M40680</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="M" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:whitesmoke;text-align:center">油墨M40681</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="M" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:whitesmoke;text-align:center">油墨M40682</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="M" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background: whitesmoke;text-align:center">油墨M40683</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="M" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background: whitesmoke;text-align:center">油墨M40684</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="M" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background: whitesmoke;text-align:center">油墨M40685</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="M" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background: whitesmoke;text-align:center">油墨M40679</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="M" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background: whitesmoke;text-align:center">油墨8</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="M" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background: whitesmoke;text-align:center">其它1</td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="M" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center"><input type="text" value="" style="font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"><button onclick="clickAddNewRowToQCCTable(this)" class="btn btn-circle btn-sm btn-danger">+</button></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+
+              <div id="divMaterialHandbag" class="row" style="display:none">
+                <div class="col">
+                  <table id="materialHandbagTableID" cellspacing="0" align="center" style="table-layout:fixed;width:100%;font-size:small;word-break:break-all">
+                    <thead>
+                      <tr style="display:none">
+                        <th style="text-align:center"><label for="exampleInputFile">上传图片</label>
+                                                      <input type="file" class=" form-control btn-warning" style="display:unset;padding:0px;width:100%;line-height:190%" id="pic_file" aria-describedby="fileHelp" accept="image/jpeg,image/png,image/gif">
+                                                      <small id="fileHelp" class="form-text text-muted" value=""></small>
+                        </th>
+                        <th style="text-align:center"><label for="pic_row">图片_行数</label>     
+                                                      <input placeholder=""  id="pic_row" type="text" class="form-control" style="background-color:#F8F8F8" disabled>
+                        </th>
+                        <th style="text-align:center"><label for="tab_pic_id">表格_图片_ID</label>     
+                                                      <input placeholder=""  id="tab_pic_id" type="text" class="form-control" style="background-color:#F8F8F8" disabled>
+                        </th>
+                        <th style="text-align:center"><label for="pic_id">图片_ID</label>     
+                                                      <input placeholder=""  id="pic_id" type="text" class="form-control" style="background-color:#F8F8F8" disabled>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody id="materialHandbagTbodyID">
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td id="showScanCompareResult" style="font-size:small;background: lightyellow;text-align:center;width:20%">日期章</td>
+                        <td style="font-size:small;text-align:center;width:34%;background:lightcyan"><input id="dateLot" type="text" value="" style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center;width:40%;background:lightcyan"><input type="text" value="" style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请拍下图片" readonly="readonly"></td>
+                        <td style="font-size:small;text-align:right;width:6%"><button onclick="uploadPic(this)" class="btn btn-circle btn-sm btn-warning">图</button></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:lightyellow;text-align:center">外箱</td>
+                        <td style="font-size:small;text-align:center;background:lightcyan"><input type="text" value="" style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center;background:lightcyan;display:none"><input type="text" value="NA" style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:lightyellow;text-align:center">塑料袋</td>
+                        <td style="font-size:small;text-align:center;background:lightcyan"><input type="text" value="" style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center;background:lightcyan;display:none"><input type="text" value="NA" style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:lightyellow;text-align:center">纸隔</td>
+                        <td style="font-size:small;text-align:center;background:lightcyan"><input type="text" value="" style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center;background:lightcyan;display:none"><input type="text" value="NA" style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:lightyellow;text-align:center">胶带</td>
+                        <td style="font-size:small;text-align:center;background:lightcyan"><input type="text" value="" style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center;background:lightcyan;display:none"><input type="text" value="NA" style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"></td>
+                      </tr>
+                      <tr style="height:30px;margin:1px;padding:1px">
+                        <td style="font-size:small;background:lightyellow;text-align:center">其它1</td>
+                        <td style="font-size:small;text-align:center;background:lightcyan"><input type="text" value="" style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写记录"></td>
+                        <td style="font-size:small;text-align:center;background:lightcyan;display:none"><input type="text" value="NA" style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" placeholder="请填写批次"></td>
+                        <td style="font-size:small;text-align:right"><button onclick="clickAddNewRowToHandbagTable(this)" class="btn btn-circle btn-sm btn-danger">+</button></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div id="divRadioInjection" class="row" style="margin-top:10px;display:none">
+                <div class="col">
+                  <table id="radioInjectionTableID" cellspacing="0" align="center" style="table-layout:fixed;width:100%;font-size:small;word-break:break-all">
+                    <tr id="trRadioInjTenacity3M" style="height:30px;padding:0;margin:1px;display:none">
+                      <td style="font-size:small;padding:1px;background:whitesmoke;width:65%">3M胶带测试烫印的粘连度</td>
+                      <td style="padding:0"><label><input name="tenacity3M" type="radio" value="Yes"/><span style="font-size:small;margin:0;height:20px">是</span></label></td>
+                      <td style="padding:0"><label><input name="tenacity3M" type="radio" value="No"/><span style="font-size:small;margin:0;height:20px">否</span></label></td>
+                      <td style="padding:0"><input style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" id="tenacity3MNum" type="number"  placeholder="数量"/></td>
+                    </tr>
+                    <tr id="trRadioInjNoFracture" style="height:30px;padding:0;margin:1px;display:none">
+                      <td style="font-size:small;padding:1px;background:whitesmoke;width:65%">弯曲测试后无断裂</td>
+                      <td style="padding:0"><label><input name="NoFracture" type="radio" value="Yes"/><span style="font-size:small;margin:0;height:20px">是</span></label></td>
+                      <td style="padding:0"><label><input name="NoFracture" type="radio" value="No"/><span style="font-size:small;margin:0;height:20px">否</span></label></td>
+                      <td style="padding:0"><input style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" id="NoFractureNum" type="number"  placeholder="数量"/></td>
+                    </tr>
+                    <tr style="height:30px;padding:0;margin:1px;">
+                      <td style="font-size:small;padding:1px;background:whitesmoke;width:55%">无色差</td>
+                      <td style="padding:0"><label><input name="noColorDiff" type="radio" value="Yes"/><span style="font-size:small;margin:0;height:20px">是</span></label></td>
+                      <td style="padding:0"><label><input name="noColorDiff" type="radio" value="No"/><span style="font-size:small;margin:0;height:20px">否</span></label></td>
+                      <td style="padding:0"><input style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" id="noColorDiffNum" type="number"  placeholder="数量"/></td>
+                    </tr>
+                    <tr style="height:30px;padding:0;margin:1px;">
+                      <td style="font-size:small;padding:1px;background: whitesmoke">无塞眼，无弯曲变形</td>
+                      <td style="padding:0"><label><input name="noPlugDeformation" type="radio" value="Yes"/><span style="font-size:small;margin:0;height:20px">是</span></label></td>
+                      <td style="padding:0"><label><input name="noPlugDeformation" type="radio" value="No"/><span style="font-size:small;margin:0;height:20px">否</span></label></td>
+                      <td style="padding:0"><input style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" id="noPlugDeformationNum" type="number"  placeholder="数量"/></td>
+                    </tr>
+                    <tr style="height:30px;padding:0;margin:1px">
+                      <td style="font-size:small;padding:1px;background: whitesmoke">无飞边/缺料/划伤等缺陷</td>
+                      <td style="padding:0"><label><input name="noFlashDefect" type="radio" value="Yes"/><span style="font-size:small;margin:0;height:20px">是</span></label></td>
+                      <td style="padding:0"><label><input name="noFlashDefect" type="radio" value="No"/><span style="font-size:small;margin:0;height:20px">否</span></label></td>
+                      <td style="padding:0"><input style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" id="noFlashDefectNum" type="number"  placeholder="数量"/></td>
+                    </tr>
+                    <tr style="height:30px;padding:0;margin:1px;">
+                      <td style="font-size:small;padding:1px;background: whitesmoke">外观清洁，无污物</td>
+                      <td style="padding:0"><label><input name="noDirt" type="radio" value="Yes"/><span style="font-size:small;margin:0;height:20px">是</span></label></td>
+                      <td style="padding:0"><label><input name="noDirt" type="radio" value="No"/><span style="font-size:small;margin:0;height:20px">否</span></label></td>
+                      <td style="padding:0"><input style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" id="noDirtNum" type="number"  placeholder="数量"/></td>
+                    </tr>
+                    <tr style="height:30px;padding:0;margin:1px">
+                      <td style="font-size:small;padding:1px;background: whitesmoke"><input placeholder="其它缺陷" style="width:100%;height=100%;border:0;background-color:unset;text-align:left" type="text" value=""></td>
+                      <td style="padding:0"><label><input name="noOther" type="radio" value="Yes"/><span style="font-size:small;margin:0;height:20px">是</span></label></td>
+                      <td style="padding:0"><label><input name="noOther" type="radio" value="No"/><span style="font-size:small;margin:0;height:20px">否</span></label></td>
+                      <td style="padding:0"><input style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" id="noOtherNum" type="number"  placeholder="数量"/></td>
+                    </tr>
+                    <tr style="height:30px;padding:0;margin:1px">
+                      <td style="font-size:small;padding:1px;background: whitesmoke">是否已经留下样品</td>
+                      <td style="padding:0"><label><input name="keepInjSample" type="radio" value="Yes"/><span style="font-size:small;margin:0;height:20px">是</span></label></td>
+                      <td style="padding:0"><label><input name="keepInjSample" type="radio" value="No"/><span style="font-size:small;margin:0;height:20px">否</span></label></td>
+                      <td style="padding:0"><input style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none;display:none" id="keepInjSampleNum" type="number"  placeholder="数量"/></td>
+                    </tr>
+                  </table>
+                </div>
+              </div>
+              <div id="divRadioDecalPrint" class="row" style="margin-top:10px;display:none">
+                <div class="col" style="padding-right:0;margin-right:0">
+                  <table id="radioDecalPrintTableID" cellspacing="0" align="center" style="table-layout:fixed;width:100%;font-size:small;word-break:break-all">
+                    <tr id="trRadioDecalPrintTenacity3M" style="height:30px;padding:0;margin:1px;display:none">
+                      <td style="font-size:small;padding:1px;background:whitesmoke;width:65%">3M胶带测试烫印的粘连度</td>
+                      <td style="padding:0"><label><input name="tenacity3M" type="radio" value="Yes"/><span style="font-size:small;margin:0;height:20px">是</span></label></td>
+                      <td style="padding:0"><label><input name="tenacity3M" type="radio" value="No"/><span style="font-size:small;margin:0;height:20px">否</span></label></td>
+                      <td style="padding:0"><input style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" id="tenacity3MNum" type="number"  placeholder="数量"/></td>
+                    </tr>
+                    <tr style="height:30px;padding:0;margin:1px;">
+                      <td style="font-size:small;padding:1px;background: whitesmoke">烫印位置是否与样卡一致</td>
+                      <td style="padding:0"><label><input name="decalPrintPosition" type="radio" value="Yes"/><span style="font-size:small;margin:0;height:20px">是</span></label></td>
+                      <td style="padding:0"><label><input name="decalPrintPosition" type="radio" value="No"/><span style="font-size:small;margin:0;height:20px">否</span></label></td>
+                      <td style="padding:0"><input style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" id="decalPrintPositionNum" type="number"  placeholder="数量"/></td>
+                    </tr>
+                    <tr style="height:30px;padding:0;margin:1px">
+                      <td style="font-size:small;padding:1px;background: whitesmoke">是否存在烫伤/图文残缺等问题</td>
+                      <td style="padding:0"><label><input name="noIncomplete" type="radio" value="Yes"/><span style="font-size:small;margin:0;height:20px">否</span></label></td>
+                      <td style="padding:0"><label><input name="noIncomplete" type="radio" value="No"/><span style="font-size:small;margin:0;height:20px">是</span></label></td>
+                      <td style="padding:0"><input style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" id="noIncompleteNum" type="number"  placeholder="数量"/></td>
+                    </tr>
+                    <tr style="height:30px;padding:0;margin:1px;">
+                      <td style="font-size:small;padding:1px;background: whitesmoke">通过测试，附着力是否符合要求</td>
+                      <td style="padding:0"><label><input name="adhesion" type="radio" value="Yes"/><span style="font-size:small;margin:0;height:20px">是</span></label></td>
+                      <td style="padding:0"><label><input name="adhesion" type="radio" value="No"/><span style="font-size:small;margin:0;height:20px">否</span></label></td>
+                      <td style="padding:0"><input style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" id="adhesionNum" type="number"  placeholder="数量"/></td>
+                    </tr>
+                    <tr style="height:30px;padding:0;margin:1px">
+                      <td style="font-size:small;padding:1px;background: whitesmoke">是否存在边缘起皮/中间起鼓问题</td>
+                      <td style="padding:0"><label><input name="noPeeling" type="radio" value="Yes"/><span style="font-size:small;margin:0;height:20px">否</span></label></td>
+                      <td style="padding:0"><label><input name="noPeeling" type="radio" value="No"/><span style="font-size:small;margin:0;height:20px">是</span></label></td>
+                      <td style="padding:0"><input style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" id="noPeelingNum" type="number"  placeholder="数量"/></td>
+                    </tr>
+                    <tr style="height:30px;padding:0;margin:1px">
+                      <td style="font-size:small;padding:1px;background: whitesmoke">是否已经留下样品</td>
+                      <td style="padding:0"><label><input name="keepDecalPrintSample" type="radio" value="Yes"/><span style="font-size:small;margin:0;height:20px">是</span></label></td>
+                      <td style="padding:0"><label><input name="keepDecalPrintSample" type="radio" value="No"/><span style="font-size:small;margin:0;height:20px">否</span></label></td>
+                      <td style="padding:0"><input style="background:unset;font-size:small;width:100%;height:90%;text-align:center;border:none" id="keepDecalPrintSampleNum" type="number"  placeholder="数量"/></td>
+                    </tr>
+                  </table>
+                </div>
+              </div>
+              </div>
+          </div>
+          
+          <div class="col-8">
+            <div class="row">
+              <div class="col-4">
+                <div class="btn-group-sm">
+                  <button id="btnTfBomShow" type="button" class="btn btn-primary">注塑</button>
+                  <button id="btnPkBomShow" type="button" class="btn btn-warning" style="display:none">在线手包</button>
+                  <button id="handBagMaterialCheck" type="button" class="btn btn-secondary" style="display:none">手包包材核对</button>
+                </div>
+              </div>
+              <div class="col-8">
+                <div style='color:magenta;font-size:medium'><marquee direction='right' scrollamount='5' behavior='alternate'><i id="backupInfo"></i></marquee></div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="col-2">
+                <input type="text" id="tfBomId" style="display:none"  disabled>
+              </div>
+              <div class="col-2">
+                <input type="text" id="pkBomId" style="display:none"  disabled>
+              </div>
+              <div class="col-2">
+                <input type="text" id="tfBomUrl" style="display:none"  disabled>
+              </div>
+              <div class="col-2">
+                <input type="text" id="pkBomUrl" style="display:none"  disabled>
+              </div>
+            </div>
+            <div class="row" style="position:absolute;z-index:10">
+              <div class="col-8 offset-2 text-center zjglint">
+                <div id="test" style='text-align:center;width:50vw;background:rgba(255,255,255,0.53);color:magenta;font-size:small'></div> 
+              </div>
+            </div>
+            <div class="row">
+              <div id="divDocHeight" class="col" style="/* height:450px; */ float:right; align-self:flex-start; overflow:hidden;">
+                <iframe id="documentID" src="" width="100%" height="100%"></iframe>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div id="divParmeterInjection" class="row" style="margin-top:20px">
+          <div id="divColParmeterInjection" class="col">
+            
+          </div>
+        </div>
+
+        <div id="divPicShiftModel" class="row" style="margin-top:20px;display:none">
+          <div class="col-4">
+            <div class="input-group">
+              <div class="input-group-prepend">
+                <button id="btnPreviewPicShiftModel" class="btn btn btn-success">预览</button>
+              </div>
+              <input id="picShiftModelId" type="text" class="form-control" placeholder="上传靠模图片" value="" readonly="readonly">
+              <div class="custom-file" style=";display:none">
+                <input type="file" class="btn-danger" style="white-space:nowrap;overflow:hidden;word-break:keep-all;text-overflow:ellipsis" id="PicShiftModelFile" accept="image/jpeg,image/png,image/gif">
+              </div>
+              <div class="input-group-append">
+                <button id="btnUploadPicShiftModel" class="btn btn btn-danger">上传</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="divPicParmeter" class="row" style="margin-top:20px;display:none">
+          <div class="col-4">
+            <div class="input-group">
+              <div class="input-group-prepend">
+                <button id="btnPreviewPicParmeter" class="btn btn btn-success">预览</button>
+              </div>
+              <input id="picParmeterId" type="text" class="form-control" placeholder="上传参数图片" value="" readonly="readonly">
+              <div class="custom-file" style=";display:none">
+                <input type="file" class="btn-danger" style="white-space:nowrap;overflow:hidden;word-break:keep-all;text-overflow:ellipsis" id="PicParmeterFile" accept="image/jpeg,image/png,image/gif">
+              </div>
+              <div class="input-group-append">
+                <button id="btnUploadPicParmeter" class="btn btn btn-danger">上传</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <div id="modalStandardData" class="modal fade" role="dialog" aria-hidden="true" data-backdrop="static">
+        <div class="modal-dialog " style="max-width:100%"><div class="modal-content" style="width:100%">
+            <div class="row" style="margin-top:20px">
+                <div class="col-6">
+                  <h4 class="modal-title">载入标准数据</h4>
+                </div>
+                <div class="col-6 text-center">
+                  <input type="checkbox" style="zoom:200%;vertical-align:middle" id="enableScanInputIf">
+                  <span>启用限时输入</span>
+                </div>
+              </div>
+            <div class="modal-header">
+              <button class="close" data-dismiss="modal">&times;</button>
+            </div>
+            
+            <div class="modal-body">
+              
+              <div class="row">
+                <div class="col-4">
+                  <div class="row">
+                    <div class="col">
+                      <label for="modalTfBomId" style=font-size:small>TF_BOM_ID</label>
+                      <input class="input-group-addon form-control" placeholder="BOM#" id="modalTfBomId" type="text" style="background-color:unset;text-align:center;font-size:small" disabled>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col">
+                      <label for="modalInjSKU" style=font-size:small>INJ_SKU</label>
+                      <input class="input-group-addon form-control" placeholder="SKU" id="modalInjSku" type="text" style="background-color:unset;text-align:center;font-size:small"  disabled>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col">
+                      <label for="modalMoldType" style=font-size:small>拌料</label>
+                      <input class="input-group-addon form-control" placeholder="是否拌料" id="modalMoldType" type="text" style="background-color:unset;text-align:center;font-size:small" disabled>
+                    </div>
+                  </div>
+                
+                  <div class="row">
+                    <div class="col">
+                      <div id="modalDivEvent" class="row" style="border:dashed 0.01rem">
+                        <div class="frozenTableR" style="height:300px">
+                          <table id="modalTabStandardInjMaterialID" border="1px solid" bordercolor="lightblue" cellspacing="0" align="center" style="table-layout:fixed;width:100%;word-break:break-all;font-size:12px">
+                            <thead>
+                              <tr>
+                                <th style="text-align:center;width:10%">注塑物料</th>
+                              </tr>
+                            </thead>
+                            <tbody id="modalTabStandardInjMaterialTbodyID">
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-4">
+                  <div class="row">
+                    <div class="col">
+                      <label for="modalPkBomId" style=font-size:small>PK_BOM_ID</label>
+                      <input class="form-control" placeholder="BOM#" id="modalPkBomId" type="text" style="background-color:unset;text-align:center;font-size:small" disabled>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col">
+                      <label for="modalPkSKU" style=font-size:small>PK_SKU</label>
+                      <input class="form-control" placeholder="SKU" id="modalPkSku" type="text" style="background-color:unset;text-align:center;font-size:small"  disabled>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col">
+                      <label style=font-size:small>　</label>
+                      <input class="form-control" placeholder="　" type="text" style="border:0;background-color:unset;text-align:center;font-size:small"  disabled>
+                    </div>
+                  </div>
+                
+                  <div class="row">
+                    <div class="col">
+                      <div id="modalDivEvent" class="row" style="border:dashed 0.01rem">
+                        <div class="frozenTableR" style="height:300px">
+                          <table id="modalTabStandardPkMaterialID" border="1px solid" bordercolor="lightblue" cellspacing="0" align="center" style="table-layout:fixed;width:100%;word-break:break-all;font-size:12px">
+                            <thead>
+                              <tr>
+                                <th style="text-align:center;width:10%">包材物料</th>
+                              </tr>
+                            </thead>
+                            <tbody id="modalTabStandardPkMaterialTbodyID">
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+
+                <div class="col-4">
+                  <div class="row">
+                    <div class="col-6">
+                      <label for="modalStandardMold" style=font-size:small>模具号</label>
+                      <input class="form-control" placeholder="模具" id="modalStandardMoldModel" type="text" style="background-color:unset;text-align:center;font-size:small" disabled>
+                    </div>
+                    <div class="col-6">
+                      <label for="modalStandardCell" style=font-size:small>Cell</label>
+                      <input class="form-control" placeholder="Cell" id="modalStandardMoldCell" type="text" style="background-color:unset;text-align:center;font-size:small" disabled>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col">
+                      <label for="modalStandardBundle" style=font-size:small>自动化分组</label>
+                      <input class="form-control" placeholder="类别" id="modalStandardMachineModel" type="text" style="background-color:unset;text-align:center;font-size:small"  disabled>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col">
+                      <label for="modalStandardMachineType" style=font-size:small>机型</label>
+                      <input class="form-control" placeholder="机型" id="modalStandardMachineType" type="text" style="background-color:unset;text-align:center;font-size:small" disabled>
+                    </div>
+                  </div>
+                
+                  <div class="row">
+                    <div class="col">
+                      <div id="modalDivEvent" class="row" style="border:dashed 0.01rem">
+                        <div class="frozenTableR" style="height:300px">
+                          <table id="modalTabStandardTechnologyID" border="1px solid" bordercolor="lightblue" cellspacing="0" align="center" style="table-layout:fixed;width:100%;word-break:break-all;font-size:12px">
+                            <thead>
+                              <tr>
+                                <th style="text-align:center;width:15%">机台</th>
+                                <th style="text-align:center;width:30%">分步数</th>
+                                <th style="text-align:center;width:15%">工艺参数</th>
+                                <th style="text-align:center;width:10%">单位</th>
+                                <th style="text-align:center;width:10%">下限</th>
+                                <th style="text-align:center;width:10%">上限</th>
+                                <th style="text-align:center;width:10%">预设值</th>
+                              </tr>
+                            </thead>
+                            <tbody id="modalTbodyStandardTechnologyID">
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+            
+              </div>
+            </div> <div class="modal-footer">
+              <button id="modalBtnSubmitSelectedCalendar" class="btn btn btn-success" data-dismiss="modal">确定</button></div>
+            
+          </div> </div> </div> </template>
+
+    <div class="row" style="margin-top:10px;margin-bottom:20px">
+      <div id="passSelectContID" class="col-1" style="padding-right:0">
+        <label for="passSelectResons" style="font-size:small">　</label>
+        <select id="passSelectResons" class="form-control" style="font-size:small">
+          <option value="通过" style="font-size:small">通过</option>
+        </select>
+      </div>
+
+      <div id="selectResonsContID" class="col-1" style="padding:0">
+        <label for="passSelectResons" style="font-size:small">　</label>
+        <select id="reportSelectResons" class="form-control" style="font-size:small">
+          <option value="正常" style="font-size:small">正常</option>
+          <option value="新旧转换" style="font-size:small">新旧转换</option>
+          <option value="备用物料" style="font-size:small">备用物料</option>
+          <option value="豁免" style="font-size:small">跳过</option>
+        </select>
+      </div>
+          
+      <div id="divExemptInputBoxContID" class="col-2" style="padding:0;display:none">
+        <label for="exemptInputBoxID" style="font-size:small">豁免原因</label>
+        <input id="exemptInputBoxID" type="text" class="form-control" data-length="5" style="font-size:small">
+      </div>
+        
+      <div id="exemptionContID" class="col-1" style="padding:0">
+        <label for="exemptionId" style="font-size:small">领班工号</label>
+        <input id="exemptionId" type="text" inputmode='numeric' class="form-control" data-length="5" style="font-size:small">
+      </div>
+          
+      <div id="PasswordInputBoxContID" class="col-1" style="padding:0">
+        <label for="PasswordInputBoxID" style="font-size:small">领班密码</label>
+        <input id="PasswordInputBoxID" type="password" class="form-control" style="font-size:small">  </div>
+          
+      <div class="col-3">
+        <label for="recordSubmit" style="font-size:small">若验证通过，则无需领班确认</label>
+        <button id="recordSubmit" class="form-control btn btn-sm btn-danger" type="submit" name="action">保存记录</button>
+      </div>
+    </div>
+    
+
+    <div class="container" style="margin-top:40px">
+      <div class="row">
+        <div class="col">
+          <h6 class="text-center" style="color:#B8B8B8">
+            Copyright © 2020 CSX All Rights Reserved
+          </h6>
+        </div>
+      </div>
+    </div>
+
+    <?!=include("core_2.6.11_js");?>
+    <?!=include("compress_1.1.1_js");?>
+    <?!=include("limonte_sweetalert2_11.4.4_js");?>
+    <?!=include("jquery_3.5.1_js");?>
+    <?!=include("dayjs_1.10.4_js");?>
+    <?!=include("moment_2.29.1_js");?>
+    <?!=include("popper_1.16.1_js");?>
+    <?!=include("bootstrap_4.5.3_js");?>
+    <?!=include("bootstrap_datepicker_1.9.0_js");?>
+    <?!=include("bootstrap_datepicker_zh_cn_1.9.0_js");?>
+    <?!=include("bootstrap_select_1.13.18_js");?>
+    <?!=include("SelfCheckScript");?>   
+  </body>
+</html>

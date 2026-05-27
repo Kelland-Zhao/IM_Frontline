@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ch">
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <?!=include("bootstrap_4.5.3_css");?>
+    <?!=include("bootstrap_datepicker_1.9.0_css");?>
+    <?!=include("bootstrap_select_1.13.18_css");?>
+    <?!=include("jquery_ui_1.12.1_css");?>
+    <?!=include("limonte_sweetalert2_11.4.4_css");?>
+    <?!=include("fontawesome_4.5_js");?>
+    <?!=include("CSS");?>
+  </head>
+  <body>
+    <div class="container" style="margin-top:0px">
+      <h1 class="text-center" style="background-color:rgb(218,41,28);color:white;padding:10px">
+        <?=title;?>
+      </h1>
+    </div>
+    
+    <div class="container" style="margin-top:10px">
+      <div class="card" style="border:0;padding-bottom:0px;padding-top:0px;margin-bottom:0px;margin-top:0px">
+      
+        <div class="row" style="margin-bottom: 0;">
+          <div class="col-2" style="margin-top: 0;">
+            <label for="lineInputID" style="font-size:small;color:black;">机台号</label>
+            <input id="lineInputID" type="text" class="form-control" style="color:black;font-size:small" value="" disabled>
+          </div>
+          
+          <div class="col-2" style="margin-top: 0;">
+            <label for="lineMoldType" style="font-size:small;color:black">模具及拌料</label>
+            <select id="lineMoldType" class="form-control" style="font-size:small">
+              <option>自动模(自动拌料)</option>
+              <option>自动模(自动＋手工拌料)</option>
+              <option>分步模(手工拌料)</option>
+              <option>分步模(自动拌料)</option>
+            </select>
+          </div>
+          
+          <div class="col-2" style="margin-top:0;padding-right:0">
+            <label for="materialInputID" style="font-size:small;color:black;">物料号</label>
+            <input id="materialInputID" type="text" class="form-control" style="color:black;font-size:small" value="" disabled>
+          </div>
+          
+          <div class="col-2" style="margin-top:0;padding-left:0">
+            <label for="bomInputID" style="font-size:small;color:black;">BOM号</label>
+            <input id="bomInputID" type="text" class="form-control" style="color:black;font-size:small" value="" disabled>            
+          </div>
+          
+          <div class="col-2" style="margin-top:0;display:none">
+            <label for="pkBomInputID" style="font-size:small;color:black;">手包BOM号</label>
+            <input id="pkBomInputID" type="text" class="form-control" style="color:black;font-size:small" value="" disabled>            
+          </div>
+          
+          <div class="col-2" style="margin-top:0;display:none">
+            <label for="pkBomInputUrl" style="font-size:small;color:black;">手包BOM链接</label>
+            <input id="pkBomInputUrl" type="text" class="form-control" style="color:black;font-size:small" value="" disabled>            
+          </div>
+          
+          <div class="col-2" style="margin-top:0;padding-right:0">
+            <label for="reportSelectResons" style="font-size:small;color:black;">选择原因</label>
+            <select class="form-control" id="reportSelectResons" style="font-size:small">
+              <option value="BOM主文件-缺失" class="form-control">BOM主文件-缺失</option>
+            </select>
+          </div>
+          
+          <div class="col-1" style="margin-top:0;padding-left:0">
+            <label for="emailSendButton" style="color: black;font-size:small">　</label>
+            <button id="emailSendButton" class="form-control btn btn-info" style="font-size:small">邮件</button>
+          </div>
+          
+          <div class="col-1" style="margin-top:0;">
+            <label for="bomTransferButtonID" style="color: black;font-size:small">　</label>
+            <button id="bomTransferButtonID" class="form-control btn btn-danger" style="font-size:small">转换</button>
+          </div>
+        </div>
+        
+        <div class="row" style="margin-top:10px; height: calc(100vh - 200px); padding-bottom: 10px;">
+          
+          <div class="col-6" style="height: 100%;">
+            <iframe id="bomDocumentID" width="100%" height="100%" style="border: none;" allowfullscreen></iframe>
+          </div>
+
+          <div class="col-6" style="display: flex; flex-direction: column; height: 100%;">
+            
+            <div style="flex: none; width: 100%;">
+              <a class="btn btn-sm btn-primary" id="transRemark" data-toggle="collapse" href="#collapseExample" role="button" aria-expanded="false" aria-controls="collapseExample">
+                转换备注
+                <span id="newOldChangeNum" style="color:#ffeb3b;font-weight:bold;margin-left:4px;"></span>
+                <span id="loadingRemark" style="display:none; font-size:12px; margin-left:8px; font-weight:normal; color:#e0e0e0;">
+                  <i class="fas fa-spinner fa-spin"></i> 正在获取新旧转换数据...
+                </span>
+              </a>
+              <div class="collapse" id="collapseExample">
+                <div id="divScroll" class="frozenTableR" style="max-height: 30vh; margin-top: 5px; overflow-y: auto;">
+                  <table id="transferCommTable" cellspacing="0" align="center" style="table-layout:fixed;width:100%;font-size:12px;word-break:break-all">
+                    <thead>
+                      <tr style="background:whitesmoke;font-weight:bold">
+                        <th style="text-align:left;width:6%">ID</th>
+                        <th style="text-align:left;width:12%">BOM#</th>
+                        <th style="text-align:left;width:12%">取代#</th>
+                        <th style="text-align:left;width:15%">涉及产品</th>
+                        <th style="text-align:left;width:15%">转换内容</th>
+                        <th style="text-align:left;width:10%">转换原则</th>
+                        <th style="text-align:left;width:15%">生效时间</th>
+                        <th style="text-align:left;width:15%">邮件通知</th>
+                      </tr>
+                    </thead>
+                    <tbody id="transferCommTbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            
+            <div style="flex: 1; min-height: 0; width: 100%; margin-top: 8px;">
+              <iframe style="display:none; width: 100%; height: 100%; border: none;" id="pkBomDocumentID" allowfullscreen></iframe>
+            </div>
+
+          </div>
+        </div>
+        
+      </div>
+    </div>
+ 
+    <?!=include("core_2.6.11_js");?>
+    <?!=include("compress_1.1.1_js");?>
+    <?!=include("limonte_sweetalert2_11.4.4_js");?>
+    <?!=include("jquery_3.5.1_js");?>
+    <?!=include("dayjs_1.10.4_js");?>
+    <?!=include("moment_2.29.1_js");?>
+    <?!=include("popper_1.16.1_js");?>
+    <?!=include("bootstrap_4.5.3_js");?>
+    <?!=include("bootstrap_datepicker_1.9.0_js");?>
+    <?!=include("bootstrap_datepicker_zh_cn_1.9.0_js");?>
+    <?!=include("bootstrap_select_1.13.18_js");?>
+    <?!=include("ViewBomScript");?>   
+  </body>
+</html>
